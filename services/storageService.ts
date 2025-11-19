@@ -24,6 +24,45 @@ export const saveUserData = <T>(userId: string, key: string, data: T): void => {
   }
 };
 
+// Scan localStorage to find all student challenge data for the teacher dashboard
+export const getAllStudentChallengeStats = () => {
+  const stats: { name: string; totalDays: number; challengeCount: number }[] = [];
+  
+  // Iterate through all localStorage keys
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    // Key format: school2026_{studentId}_god_saeng
+    if (key && key.startsWith(PREFIX) && key.endsWith('_god_saeng')) {
+      try {
+        // Extract userId from key
+        // prefix length is 11 (school2026_), suffix length is 9 (_god_saeng)
+        const userId = key.substring(PREFIX.length, key.length - 9);
+        
+        const data = JSON.parse(localStorage.getItem(key) || '[]');
+        
+        if (Array.isArray(data)) {
+          // Calculate total completed days across all challenges for this student
+          const totalDays = data.reduce((acc: number, cur: any) => acc + (cur.daysCompleted || 0), 0);
+          
+          // Only include if they have at least started something or created a challenge
+          if (data.length > 0) {
+            stats.push({
+              name: userId, // Using ID as name since we don't store names separately in this simple DB
+              totalDays: totalDays,
+              challengeCount: data.length
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Error parsing student data", e);
+      }
+    }
+  }
+  
+  // Sort by effort (total days) descending
+  return stats.sort((a, b) => b.totalDays - a.totalDays);
+};
+
 // For Teacher View: In a real app this would fetch from DB. 
 // Here we just mock it or could potentially scan localStorage keys if we really wanted to.
 export const getAggregateData = () => {

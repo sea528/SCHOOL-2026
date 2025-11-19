@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { Challenge } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot } from 'lucide-react';
+import { Challenge, UserRole } from '../types';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2 } from 'lucide-react';
 import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
-import { loadUserData, saveUserData } from '../services/storageService';
+import { loadUserData, saveUserData, getAllStudentChallengeStats } from '../services/storageService';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 
 interface GodSaengProps {
   userId: string;
+  role?: UserRole;
 }
 
 // Initial samples for structure, but we will filter them out for the user view
@@ -16,7 +18,7 @@ const initialChallenges: Challenge[] = [
   { id: '3', title: '영단어 50개 암기', description: '퀴즈 점수 90점 이상 인증', daysTotal: 30, daysCompleted: 5, badgeIcon: '🧠', color: 'bg-blue-500' },
 ];
 
-const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
+const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
@@ -24,6 +26,9 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   
+  // Teacher View Data
+  const [studentStats, setStudentStats] = useState<{ name: string; totalDays: number; challengeCount: number }[]>([]);
+
   // New Challenge Form State
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -33,30 +38,36 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
 
   useEffect(() => {
     setIsLoading(true);
-    const loadedData = loadUserData(userId, 'god_saeng', initialChallenges);
     
-    // Filter out sample data (IDs 1-3) so user starts fresh or sees only their own data
-    // User generated IDs are Date.now() (long strings)
-    const cleanData = loadedData.filter(c => c.id.length > 5);
-    
-    setChallenges(cleanData);
-    setIsLoading(false);
-  }, [userId]);
+    if (role === UserRole.TEACHER) {
+      // Teacher Logic: Load aggregated stats
+      const stats = getAllStudentChallengeStats();
+      setStudentStats(stats);
+      setIsLoading(false);
+    } else {
+      // Student Logic: Load personal data
+      const loadedData = loadUserData(userId, 'god_saeng', initialChallenges);
+      // Filter out sample data (IDs 1-3) so user starts fresh
+      const cleanData = loadedData.filter(c => c.id.length > 5);
+      setChallenges(cleanData);
+      setIsLoading(false);
+    }
+  }, [userId, role]);
 
   useEffect(() => {
-    // Save even if empty to persist deletions
-    if (!isLoading) {
+    // Save logic only for students
+    if (role !== UserRole.TEACHER && !isLoading) {
       saveUserData(userId, 'god_saeng', challenges);
     }
-  }, [challenges, userId, isLoading]);
+  }, [challenges, userId, isLoading, role]);
 
   useEffect(() => {
-    if (challenges.length > 0) {
+    if (role !== UserRole.TEACHER && challenges.length > 0) {
       generateChallengeSummary(challenges.map(c => c.title)).then(setAiSlogan);
-    } else {
+    } else if (role !== UserRole.TEACHER) {
       setAiSlogan("새로운 챌린지를 시작해보세요!");
     }
-  }, [challenges]);
+  }, [challenges, role]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -131,6 +142,72 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
     setIsAiLoading(false);
   };
 
+  // ------------------------------------------------------------------
+  // TEACHER VIEW
+  // ------------------------------------------------------------------
+  if (role === UserRole.TEACHER) {
+    return (
+      <div className="space-y-8 pb-20">
+        <header className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-2">
+            <BarChart2 className="w-6 h-6" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">갓생 챌린지 리더보드</h1>
+          <p className="text-slate-500 text-sm">학생들의 챌린지 참여도와 누적 인증 횟수를 비교합니다.</p>
+        </header>
+
+        {studentStats.length === 0 ? (
+           <div className="text-center py-12 bg-white rounded-2xl border-dashed border-2 border-slate-200">
+              <p className="text-slate-400 font-bold">아직 챌린지에 참여한 학생이 없습니다.</p>
+              <p className="text-xs text-slate-400 mt-1">학생들이 챌린지를 시작하면 그래프가 나타납니다.</p>
+           </div>
+        ) : (
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+            <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={studentStats} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" hide />
+                  <YAxis 
+                    dataKey="name" 
+                    type="category" 
+                    width={80} 
+                    tick={{ fontSize: 12, fill: '#64748b', fontWeight: 'bold' }} 
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Bar dataKey="totalDays" name="누적 인증일수" radius={[0, 4, 4, 0]} barSize={20}>
+                    {studentStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index < 3 ? '#4f46e5' : '#94a3b8'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-4">
+               <div className="bg-indigo-50 p-4 rounded-xl">
+                 <span className="text-xs font-bold text-indigo-400 block mb-1">가장 열정적인 학생</span>
+                 <div className="text-lg font-black text-indigo-900 truncate">{studentStats[0]?.name || '-'}</div>
+               </div>
+               <div className="bg-slate-50 p-4 rounded-xl">
+                 <span className="text-xs font-bold text-slate-400 block mb-1">참여 학생 수</span>
+                 <div className="text-lg font-black text-slate-700">{studentStats.length}명</div>
+               </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // STUDENT VIEW (Existing Logic)
+  // ------------------------------------------------------------------
+  
   // Calculate stats based on real data
   const totalBadges = challenges.filter(c => c.daysCompleted === c.daysTotal).length;
   const currentStreak = challenges.length > 0 ? Math.max(...challenges.map(c => c.daysCompleted > 0 ? c.daysCompleted : 0)) : 0;

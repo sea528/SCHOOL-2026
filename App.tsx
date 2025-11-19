@@ -31,7 +31,7 @@ const App: React.FC = () => {
       case 'MICRO_LEARNING':
         return <MicroLearning role={user.role} userId={user.id} userName={user.name} />;
       case 'GOD_SAENG':
-        return <GodSaeng userId={user.id} />;
+        return <GodSaeng userId={user.id} role={user.role} />;
       case 'DITTO':
         return <Ditto userId={user.id} userName={user.name} />;
       default:
