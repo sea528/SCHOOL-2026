@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Sparkles, Bot } from 'lucide-react';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot } from 'lucide-react';
 import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
 import { loadUserData, saveUserData } from '../services/storageService';
 
@@ -9,6 +9,7 @@ interface GodSaengProps {
   userId: string;
 }
 
+// Initial samples for structure, but we will filter them out for the user view
 const initialChallenges: Challenge[] = [
   { id: '1', title: '미라클 모닝 6AM', description: '아침 6시 기상 인증샷 찍기', daysTotal: 30, daysCompleted: 12, badgeIcon: '🌅', color: 'bg-orange-500' },
   { id: '2', title: '야자 2시간 순공', description: '타임랩스 촬영하여 인증', daysTotal: 14, daysCompleted: 14, badgeIcon: '🔥', color: 'bg-red-500' },
@@ -33,12 +34,17 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   useEffect(() => {
     setIsLoading(true);
     const loadedData = loadUserData(userId, 'god_saeng', initialChallenges);
-    setChallenges(loadedData);
+    
+    // Filter out sample data (IDs 1-3) so user starts fresh or sees only their own data
+    // User generated IDs are Date.now() (long strings)
+    const cleanData = loadedData.filter(c => c.id.length > 5);
+    
+    setChallenges(cleanData);
     setIsLoading(false);
   }, [userId]);
 
   useEffect(() => {
-    // Removed 'challenges.length > 0' check to allow saving empty state
+    // Save even if empty to persist deletions
     if (!isLoading) {
       saveUserData(userId, 'god_saeng', challenges);
     }
@@ -75,9 +81,10 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   };
 
   const handleDeleteChallenge = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+    e.stopPropagation(); // Stop click from bubbling to card
     e.preventDefault();
-    if (window.confirm('이 챌린지를 삭제하시겠습니까? 기록이 사라집니다.')) {
+    
+    if (window.confirm('정말 이 챌린지를 삭제하시겠습니까?')) {
       setChallenges(prev => prev.filter(c => c.id !== id));
     }
   };
@@ -173,13 +180,14 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
         
       <div className="space-y-4">
         {challenges.map((challenge) => (
-          <div key={challenge.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 relative overflow-hidden transition-all hover:shadow-md">
+          <div key={challenge.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 relative overflow-hidden transition-all hover:shadow-md group">
             <div className={`absolute top-0 left-0 w-1 h-full ${challenge.color}`}></div>
             
-            {/* Delete Button */}
+            {/* Delete Button - Improved Click Area & Z-Index */}
             <button 
+              type="button"
               onClick={(e) => handleDeleteChallenge(e, challenge.id)}
-              className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors p-1 z-10"
+              className="absolute top-2 right-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full p-2 transition-all z-20"
               title="챌린지 삭제"
             >
               <Trash2 className="w-4 h-4" />
@@ -190,7 +198,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
                 <div className="text-3xl bg-slate-50 w-12 h-12 flex items-center justify-center rounded-xl border border-slate-100">
                   {challenge.badgeIcon}
                 </div>
-                <div className="pr-6">
+                <div className="pr-8">
                   <h3 className="font-bold text-slate-900">{challenge.title}</h3>
                   <p className="text-xs text-slate-500">{challenge.description}</p>
                 </div>
@@ -222,7 +230,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
                 ) : (
                   <button 
                     onClick={() => setSelectedChallenge(challenge)}
-                    className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center gap-2 shadow-lg shadow-slate-200"
+                    className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center gap-2 shadow-lg shadow-slate-200 z-10 relative"
                   >
                     <Camera className="w-3 h-3" /> 인증
                   </button>
@@ -233,16 +241,17 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
         ))}
         
         {challenges.length === 0 && (
-            <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
-                <p>등록된 챌린지가 없습니다.</p>
-                <p className="text-xs mt-1">'추가' 버튼을 눌러 시작해보세요!</p>
+            <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
+                <Award className="w-12 h-12 mx-auto text-slate-300 mb-2" />
+                <p className="font-bold">등록된 챌린지가 없습니다.</p>
+                <p className="text-xs mt-1">'추가' 버튼을 눌러 갓생을 시작해보세요!</p>
             </div>
         )}
       </div>
 
       {/* Certification Modal */}
       {selectedChallenge && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-6 animate-fade-in-up shadow-2xl">
             <div className="text-center">
               <h3 className="text-xl font-bold text-slate-900">{selectedChallenge.title} 인증</h3>
@@ -287,7 +296,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
 
       {/* Add Challenge Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
                <h3 className="font-bold text-xl text-slate-800">새 챌린지 도전</h3>
