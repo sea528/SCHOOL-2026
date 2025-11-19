@@ -95,9 +95,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     const text = `${header}\n${rows}`;
     
     navigator.clipboard.writeText(text).then(() => {
-      // Open new sheet logic removed as requested in previous steps, simplified to just alert or simple copy
-      // Re-adding the simple alert for now, or the `window.open` trick if desired.
-      // Per previous instruction: "copy and open sheet.new"
       window.open('https://sheet.new', '_blank');
       alert("성장 그래프 데이터가 복사되었습니다! 새로 열린 시트에 Ctrl+V 하세요.");
     }).catch(() => {
@@ -124,7 +121,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
         {/* 1. Course Completion Graph */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
           <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-indigo-500" /> 숏클래스 수강 랭킹
+            <BookOpen className="w-5 h-5 text-indigo-500" /> 학생별 강의 시청 횟수 비교
           </h2>
           {studentGrowthStats.length > 0 ? (
              <div className="h-80 w-full">
