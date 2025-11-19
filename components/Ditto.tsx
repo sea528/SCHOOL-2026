@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { GradeRecord, Challenge } from '../types';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy } from 'lucide-react';
+import { GradeRecord, Challenge, UserRole } from '../types';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
-import { loadUserData, saveUserData, downloadUserDataAsExcel } from '../services/storageService';
+import { loadUserData, saveUserData, downloadUserDataAsExcel, getAllStudentGrowthData } from '../services/storageService';
 
 interface DittoProps {
   userId: string;
   userName: string;
+  role?: UserRole;
 }
 
 // Simulate past history
@@ -18,46 +19,51 @@ const baseHistory: GradeRecord[] = [
   { term: '여름방학', score: 62, subject: '종합' },
 ];
 
-const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
+const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
   const [graphData, setGraphData] = useState<GradeRecord[]>(baseHistory);
   const [reflection, setReflection] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load everything to calculate the dynamic "Current" growth score
+  // Teacher View State
+  const [studentGrowthStats, setStudentGrowthStats] = useState<{ id: string; courseCount: number; reflection: string }[]>([]);
+
+  // Load Data based on Role
   useEffect(() => {
     setIsLoading(true);
-    
-    // Load Reflection
-    const savedReflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: null });
-    setReflection(savedReflectionData.reflection || '');
-    setFeedback(savedReflectionData.feedback || null);
 
-    // Load Activities for Score Calculation
-    // NOTE: MicroLearning now uses 'course_progress' to store just IDs of completed courses
-    const completedCourseIds = loadUserData<string[]>(userId, 'course_progress', []);
-    const challenges: Challenge[] = loadUserData(userId, 'god_saeng', []);
+    if (role === UserRole.TEACHER) {
+      // Load Aggregated Data for Teacher
+      const stats = getAllStudentGrowthData();
+      setStudentGrowthStats(stats);
+      setIsLoading(false);
+    } else {
+      // Load Personal Data for Student
+      const savedReflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: null });
+      setReflection(savedReflectionData.reflection || '');
+      setFeedback(savedReflectionData.feedback || null);
 
-    // Calculate Score
-    // 1 completed course = 5 points
-    // 1 challenge day = 1 point
-    const courseScore = completedCourseIds.length * 5;
-    const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
-    
-    // Base score starts at 62 (last history point)
-    const currentScore = 62 + courseScore + challengeScore;
-    const cappedScore = Math.min(currentScore, 100); // Max 100
+      const completedCourseIds = loadUserData<string[]>(userId, 'course_progress', []);
+      const challenges: Challenge[] = loadUserData(userId, 'god_saeng', []);
 
-    const currentDataPoint = {
-      term: '현재',
-      score: cappedScore,
-      subject: '종합'
-    };
+      // Calculate Score
+      const courseScore = completedCourseIds.length * 5;
+      const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
+      
+      const currentScore = 62 + courseScore + challengeScore;
+      const cappedScore = Math.min(currentScore, 100);
 
-    setGraphData([...baseHistory, currentDataPoint]);
-    setIsLoading(false);
-  }, [userId]);
+      const currentDataPoint = {
+        term: '현재',
+        score: cappedScore,
+        subject: '종합'
+      };
+
+      setGraphData([...baseHistory, currentDataPoint]);
+      setIsLoading(false);
+    }
+  }, [userId, role]);
 
   // Save helper
   const handleSave = () => {
@@ -80,7 +86,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
     setFeedback(aiResponse);
     setIsGenerating(false);
     
-    // Auto save after generation
     saveUserData(userId, 'ditto_reflection', { reflection, feedback: aiResponse });
   };
 
@@ -90,12 +95,99 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
     const text = `${header}\n${rows}`;
     
     navigator.clipboard.writeText(text).then(() => {
-      alert("성장 그래프 데이터가 복사되었습니다!\n구글 스프레드시트를 열고 Ctrl+V (붙여넣기) 하세요.");
+      // Open new sheet logic removed as requested in previous steps, simplified to just alert or simple copy
+      // Re-adding the simple alert for now, or the `window.open` trick if desired.
+      // Per previous instruction: "copy and open sheet.new"
+      window.open('https://sheet.new', '_blank');
+      alert("성장 그래프 데이터가 복사되었습니다! 새로 열린 시트에 Ctrl+V 하세요.");
     }).catch(() => {
       alert("복사에 실패했습니다.");
     });
   };
 
+  // ------------------------------------------------------------------
+  // TEACHER VIEW
+  // ------------------------------------------------------------------
+  if (role === UserRole.TEACHER) {
+    const reflectionList = studentGrowthStats.filter(s => s.reflection && s.reflection.trim() !== '');
+
+    return (
+      <div className="space-y-8 pb-20">
+        <header className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-2">
+            <TrendingUp className="w-6 h-6" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">학급 성장 리포트</h1>
+          <p className="text-slate-500 text-sm">학생들의 수강 현황과 성장 에세이를 확인하세요.</p>
+        </header>
+
+        {/* 1. Course Completion Graph */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+          <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-indigo-500" /> 숏클래스 수강 랭킹
+          </h2>
+          {studentGrowthStats.length > 0 ? (
+             <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={studentGrowthStats} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="id" tick={{fontSize: 12}} interval={0} />
+                  <YAxis allowDecimals={false} label={{ value: '수강 수', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip 
+                    cursor={{fill: 'transparent'}}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Bar dataKey="courseCount" name="수강 완료" radius={[4, 4, 0, 0]} barSize={30}>
+                    {studentGrowthStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={index < 3 ? '#4f46e5' : '#94a3b8'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+             </div>
+          ) : (
+            <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border-dashed border-2 border-slate-200">
+              아직 강의를 들은 학생이 없습니다.
+            </div>
+          )}
+        </div>
+
+        {/* 2. Student Stories Feed */}
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 px-2">
+            <Edit3 className="w-5 h-5 text-pink-500" /> 학생들의 성장 스토리
+          </h2>
+          <div className="space-y-4">
+            {reflectionList.length > 0 ? (
+              reflectionList.map((student) => (
+                <div key={student.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                      <UserIcon className="w-4 h-4 text-slate-500" />
+                    </div>
+                    <span className="font-bold text-slate-900">{student.id}</span>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-xl text-slate-700 text-sm leading-relaxed relative">
+                    <span className="absolute top-2 left-2 text-3xl text-slate-200 font-serif">"</span>
+                    <p className="relative z-10 px-2">{student.reflection}</p>
+                    <span className="absolute bottom-[-10px] right-4 text-3xl text-slate-200 font-serif">"</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border-dashed border-2 border-slate-200">
+                아직 작성된 성장 스토리가 없습니다.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // STUDENT VIEW (Original)
+  // ------------------------------------------------------------------
   const currentScore = graphData[graphData.length - 1]?.score || 0;
   const growth = currentScore - graphData[0].score;
 

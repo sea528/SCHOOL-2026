@@ -63,20 +63,55 @@ export const getAllStudentChallengeStats = () => {
   return stats.sort((a, b) => b.totalDays - a.totalDays);
 };
 
-// For Teacher View: In a real app this would fetch from DB. 
-// Here we just mock it or could potentially scan localStorage keys if we really wanted to.
-export const getAggregateData = () => {
-  // Mock data for teacher dashboard
-  return {
-    avgProgress: 78,
-    activeStudents: 24,
-    warningStudents: 3
-  };
+// Scan localStorage to gather Course Counts and Reflections for Teacher Ditto View
+export const getAllStudentGrowthData = () => {
+  const studentMap = new Map<string, { courseCount: number; reflection: string }>();
+
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(PREFIX)) continue;
+
+    let userId = '';
+    
+    // Check for course progress key
+    if (key.endsWith('_course_progress')) {
+       userId = key.substring(PREFIX.length, key.length - 16); // '_course_progress'.length = 16
+    } 
+    // Check for reflection key
+    else if (key.endsWith('_ditto_reflection')) {
+       userId = key.substring(PREFIX.length, key.length - 17); // '_ditto_reflection'.length = 17
+    }
+
+    if (userId && userId !== 'SHARED_CONTENT') {
+        if (!studentMap.has(userId)) {
+            studentMap.set(userId, { courseCount: 0, reflection: '' });
+        }
+        const current = studentMap.get(userId)!;
+
+        if (key.endsWith('_course_progress')) {
+            const progress = JSON.parse(localStorage.getItem(key) || '[]');
+            current.courseCount = Array.isArray(progress) ? progress.length : 0;
+        } else if (key.endsWith('_ditto_reflection')) {
+            const refData = JSON.parse(localStorage.getItem(key) || '{}');
+            current.reflection = refData.reflection || '';
+        }
+    }
+  }
+
+  return Array.from(studentMap.entries())
+    .map(([id, val]) => ({
+      id,
+      courseCount: val.courseCount,
+      reflection: val.reflection
+    }))
+    .filter(item => item.courseCount > 0 || item.reflection !== '') // Only show active students
+    .sort((a, b) => b.courseCount - a.courseCount); // Sort by course count descending
 };
 
 export const downloadUserDataAsExcel = (userId: string, userName: string, graphData: any[] = []) => {
   // 1. Load All Data for the user
-  const courses = loadUserData(userId, 'micro_learning', []);
+  const courses = loadUserData(userId, 'micro_learning', []); // Note: Legacy check, technically should be checking shared + progress for full detail
+  const courseProgress = loadUserData(userId, 'course_progress', []); // Just IDs
   const challenges = loadUserData(userId, 'god_saeng', []);
   const reflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: '' });
 
@@ -100,14 +135,7 @@ export const downloadUserDataAsExcel = (userId: string, userName: string, graphD
 
   // Section 2: Micro Learning
   csvContent += `[2. 숏클래스 학습 현황]\n`;
-  csvContent += `강의명,과목,수강시간,이수여부\n`;
-  if (Array.isArray(courses)) {
-    courses.forEach((c: any) => {
-      // CSV escape: wrap in quotes, replace inner quotes with double quotes
-      const title = `"${c.title.replace(/"/g, '""')}"`;
-      csvContent += `${title},${c.subject},${c.duration},${c.completed ? '이수 완료' : '미이수'}\n`;
-    });
-  }
+  csvContent += `수강 완료 강의 수,${courseProgress.length}개\n`;
   csvContent += `\n`;
 
   // Section 3: God Saeng Challenges
