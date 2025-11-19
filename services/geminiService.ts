@@ -56,3 +56,39 @@ export const generateChallengeSummary = async (challenges: string[]): Promise<st
     return "오늘도 화이팅!";
   }
 };
+
+export const recommendChallenge = async (): Promise<{title: string, description: string, days: number, emoji: string} | null> => {
+  const ai = getAiClient();
+  if (!ai) return null;
+
+  try {
+    const prompt = `
+      고등학생이 학교 생활이나 자기개발을 위해 할 수 있는 트렌디하고 유익한 '갓생 챌린지' 하나를 추천해주세요.
+      너무 뻔하지 않고 학생들이 좋아할만한 주제(공부, 운동, 멘탈, 습관 등)로 선정해주세요.
+      
+      응답은 반드시 다음 JSON 형식으로 해주세요:
+      {
+        "title": "챌린지 제목 (짧고 임팩트 있게)",
+        "description": "구체적인 인증 방법 (한 문장)",
+        "days": 추천 수행 기간 (숫자만, 14~30 사이),
+        "emoji": "관련 이모지 1개"
+      }
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
+    
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+    return null;
+  } catch (e) {
+    console.error("AI Recommend Error", e);
+    return null;
+  }
+};

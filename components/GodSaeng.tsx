@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2 } from 'lucide-react';
-import { generateChallengeSummary } from '../services/geminiService';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Sparkles, Bot } from 'lucide-react';
+import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
 import { loadUserData, saveUserData } from '../services/storageService';
 
 interface GodSaengProps {
@@ -27,6 +27,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDays, setNewDays] = useState(30);
+  const [newIcon, setNewIcon] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => {
     setIsLoading(true);
@@ -92,15 +94,34 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
       description: newDesc || '나만의 멋진 챌린지',
       daysTotal: newDays,
       daysCompleted: 0,
-      badgeIcon: icons[Math.floor(Math.random() * icons.length)],
+      badgeIcon: newIcon || icons[Math.floor(Math.random() * icons.length)],
       color: colors[Math.floor(Math.random() * colors.length)]
     };
 
     setChallenges([...challenges, newChallenge]);
     setShowAddModal(false);
+    resetForm();
+  };
+
+  const resetForm = () => {
     setNewTitle('');
     setNewDesc('');
     setNewDays(30);
+    setNewIcon('');
+  };
+
+  const handleAiRecommend = async () => {
+    setIsAiLoading(true);
+    const rec = await recommendChallenge();
+    if (rec) {
+      setNewTitle(rec.title);
+      setNewDesc(rec.description);
+      setNewDays(rec.days);
+      setNewIcon(rec.emoji);
+    } else {
+      alert("AI 추천을 불러오지 못했습니다. 다시 시도해주세요.");
+    }
+    setIsAiLoading(false);
   };
 
   // Calculate stats based on real data
@@ -267,12 +288,30 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
       {/* Add Challenge Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
                <h3 className="font-bold text-xl text-slate-800">새 챌린지 도전</h3>
                <button onClick={() => setShowAddModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
             </div>
             
+            {/* AI Recommendation Button */}
+            <button 
+              onClick={handleAiRecommend}
+              disabled={isAiLoading}
+              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold shadow-md mb-6 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              {isAiLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  AI가 고민중...
+                </>
+              ) : (
+                <>
+                  <Bot className="w-5 h-5" /> AI에게 챌린지 추천받기
+                </>
+              )}
+            </button>
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">챌린지 이름</label>
