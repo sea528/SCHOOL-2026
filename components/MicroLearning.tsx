@@ -15,46 +15,46 @@ const initialCourses: Course[] = [
     id: '1', 
     title: '미적분: 3분 만에 이해하는 도함수', 
     duration: '03:12', 
-    thumbnail: 'https://img.youtube.com/vi/P5CRea2yAiQ/mqdefault.jpg', 
+    thumbnail: 'https://img.youtube.com/vi/greWQbI61N4/mqdefault.jpg', 
     completed: true, 
     subject: '수학',
-    videoUrl: 'https://www.youtube.com/embed/P5CRea2yAiQ' 
+    videoUrl: 'https://www.youtube.com/embed/greWQbI61N4' 
   },
   { 
     id: '2', 
     title: '영어 독해: 빈칸 추론 필승법', 
     duration: '04:50', 
-    thumbnail: 'https://img.youtube.com/vi/zPZ0Nggt8KQ/mqdefault.jpg', 
+    thumbnail: 'https://img.youtube.com/vi/MultiuKj8vM/mqdefault.jpg', 
     completed: false, 
     subject: '영어',
-    videoUrl: 'https://www.youtube.com/embed/zPZ0Nggt8KQ'
+    videoUrl: 'https://www.youtube.com/embed/MultiuKj8vM'
   },
   { 
     id: '3', 
     title: '물리: 뉴턴 법칙 실생활 예시', 
     duration: '03:30', 
-    thumbnail: 'https://img.youtube.com/vi/kK2hR5n2rNs/mqdefault.jpg', 
+    thumbnail: 'https://img.youtube.com/vi/T0W0n2Y6_bM/mqdefault.jpg', 
     completed: false, 
     subject: '과학',
-    videoUrl: 'https://www.youtube.com/embed/kK2hR5n2rNs'
+    videoUrl: 'https://www.youtube.com/embed/T0W0n2Y6_bM'
   },
   { 
     id: '4', 
     title: '현대시: 시적 화자의 정서 찾기', 
     duration: '05:00', 
-    thumbnail: 'https://img.youtube.com/vi/3vY3d9qQZ3k/mqdefault.jpg', 
+    thumbnail: 'https://img.youtube.com/vi/Xm3h3r3W5jE/mqdefault.jpg', 
     completed: false, 
     subject: '국어',
-    videoUrl: 'https://www.youtube.com/embed/3vY3d9qQZ3k'
+    videoUrl: 'https://www.youtube.com/embed/Xm3h3r3W5jE'
   },
   { 
     id: '5', 
     title: '한국사: 개화기 흐름 한눈에', 
     duration: '04:15', 
-    thumbnail: 'https://img.youtube.com/vi/L1sI7gLz0iU/mqdefault.jpg', 
+    thumbnail: 'https://img.youtube.com/vi/S5rL4p0Q2jE/mqdefault.jpg', 
     completed: false, 
     subject: '한국사',
-    videoUrl: 'https://www.youtube.com/embed/L1sI7gLz0iU'
+    videoUrl: 'https://www.youtube.com/embed/S5rL4p0Q2jE'
   },
 ];
 
@@ -82,7 +82,9 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
 
   // Save data whenever courses change
   useEffect(() => {
-    if (!isLoading && courses.length > 0) {
+    // Only save if we have finished loading. 
+    // Removed 'courses.length > 0' check so empty lists can be saved (e.g. after deleting all).
+    if (!isLoading) {
       saveUserData(userId, 'micro_learning', courses);
     }
   }, [courses, userId, isLoading]);
@@ -94,7 +96,8 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   };
 
   const handleDeleteCourse = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); 
+    e.stopPropagation();
+    e.preventDefault(); 
     if (window.confirm('정말 이 강의를 삭제하시겠습니까?')) {
       setCourses(prev => prev.filter(c => c.id !== id));
     }
@@ -117,6 +120,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       const videoId = getYouTubeId(newVideoUrl);
       if (videoId) {
         thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+        // Construct embed URL
         videoUrl = `https://www.youtube.com/embed/${videoId}`;
       }
     }
@@ -139,6 +143,14 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
 
   const handlePlayVideo = (course: Course) => {
     setPlayingCourse(course);
+  };
+
+  // Helper to get safe video URL with origin
+  const getSafeVideoUrl = (url: string) => {
+    if (!url) return '';
+    const origin = window.location.origin;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}autoplay=1&mute=0&origin=${origin}`;
   };
 
   const filteredCourses = activeFilter === 'All' 
@@ -387,8 +399,8 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
 
       {/* Video Player Modal */}
       {playingCourse && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setPlayingCourse(null)}>
+          <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
             <div className="absolute top-4 right-4 z-10">
               <button 
                 onClick={() => setPlayingCourse(null)}
@@ -401,7 +413,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
             <div className="aspect-video w-full bg-black flex items-center justify-center">
               {playingCourse.videoUrl ? (
                 <iframe 
-                  src={`${playingCourse.videoUrl}?autoplay=1`}
+                  src={getSafeVideoUrl(playingCourse.videoUrl)}
                   title={playingCourse.title}
                   className="w-full h-full"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

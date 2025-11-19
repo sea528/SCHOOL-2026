@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Challenge } from '../types';
 import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2 } from 'lucide-react';
@@ -35,7 +36,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   }, [userId]);
 
   useEffect(() => {
-    if (!isLoading && challenges.length > 0) {
+    // Removed 'challenges.length > 0' check to allow saving empty state
+    if (!isLoading) {
       saveUserData(userId, 'god_saeng', challenges);
     }
   }, [challenges, userId, isLoading]);
@@ -43,6 +45,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
   useEffect(() => {
     if (challenges.length > 0) {
       generateChallengeSummary(challenges.map(c => c.title)).then(setAiSlogan);
+    } else {
+      setAiSlogan("새로운 챌린지를 시작해보세요!");
     }
   }, [challenges]);
 
@@ -70,6 +74,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
 
   const handleDeleteChallenge = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    e.preventDefault();
     if (window.confirm('이 챌린지를 삭제하시겠습니까? 기록이 사라집니다.')) {
       setChallenges(prev => prev.filter(c => c.id !== id));
     }
@@ -100,7 +105,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
 
   // Calculate stats based on real data
   const totalBadges = challenges.filter(c => c.daysCompleted === c.daysTotal).length;
-  const currentStreak = Math.max(...challenges.map(c => c.daysCompleted > 0 ? c.daysCompleted : 0));
+  const currentStreak = challenges.length > 0 ? Math.max(...challenges.map(c => c.daysCompleted > 0 ? c.daysCompleted : 0)) : 0;
   const level = Math.floor(challenges.reduce((acc, cur) => acc + cur.daysCompleted, 0) / 5) + 1;
 
   return (
@@ -205,6 +210,13 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId }) => {
             </div>
           </div>
         ))}
+        
+        {challenges.length === 0 && (
+            <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
+                <p>등록된 챌린지가 없습니다.</p>
+                <p className="text-xs mt-1">'추가' 버튼을 눌러 시작해보세요!</p>
+            </div>
+        )}
       </div>
 
       {/* Certification Modal */}
