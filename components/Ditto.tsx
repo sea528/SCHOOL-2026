@@ -1,12 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Course, Challenge } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save } from 'lucide-react';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
-import { loadUserData, saveUserData } from '../services/storageService';
+import { loadUserData, saveUserData, downloadUserDataAsExcel } from '../services/storageService';
 
 interface DittoProps {
   userId: string;
+  userName: string;
 }
 
 // Simulate past history
@@ -16,7 +18,7 @@ const baseHistory: GradeRecord[] = [
   { term: '여름방학', score: 62, subject: '종합' },
 ];
 
-const Ditto: React.FC<DittoProps> = ({ userId }) => {
+const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
   const [graphData, setGraphData] = useState<GradeRecord[]>(baseHistory);
   const [reflection, setReflection] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -87,7 +89,15 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
   return (
     <div className="space-y-8 pb-20">
       <header className="space-y-2">
-        <h1 className="text-3xl font-black text-slate-900">Ditto 성장 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
+        <div className="flex justify-between items-start">
+          <h1 className="text-3xl font-black text-slate-900">Ditto 성장 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
+          <button 
+            onClick={() => downloadUserDataAsExcel(userId, userName)}
+            className="flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-green-200 hover:bg-green-700 transition-colors"
+          >
+            <FileSpreadsheet className="w-4 h-4" /> 엑셀 저장
+          </button>
+        </div>
         <p className="text-slate-500">나의 변화 과정을 기록하고 친구들과 공유해보세요.</p>
       </header>
 

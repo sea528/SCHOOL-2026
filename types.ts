@@ -1,3 +1,4 @@
+
 export enum UserRole {
   STUDENT = 'STUDENT',
   TEACHER = 'TEACHER'
@@ -16,6 +17,7 @@ export interface Course {
   thumbnail: string;
   completed: boolean;
   subject: string;
+  videoUrl?: string; // YouTube embed URL
 }
 
 export interface Challenge {

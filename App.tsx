@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, UserRole, ViewState } from './types';
 import MicroLearning from './components/MicroLearning';
@@ -32,7 +33,7 @@ const App: React.FC = () => {
       case 'GOD_SAENG':
         return <GodSaeng userId={user.id} />;
       case 'DITTO':
-        return <Ditto userId={user.id} />;
+        return <Ditto userId={user.id} userName={user.name} />;
       default:
         return <MicroLearning role={user.role} userId={user.id} userName={user.name} />;
     }
