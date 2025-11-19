@@ -10,53 +10,8 @@ interface MicroLearningProps {
   userName: string;
 }
 
-const initialCourses: Course[] = [
-  { 
-    id: '1', 
-    title: '미적분: 3분 만에 이해하는 도함수', 
-    duration: '03:12', 
-    thumbnail: 'https://img.youtube.com/vi/greWQbI61N4/mqdefault.jpg', 
-    completed: true, 
-    subject: '수학',
-    videoUrl: 'https://www.youtube.com/embed/greWQbI61N4' 
-  },
-  { 
-    id: '2', 
-    title: '영어 독해: 빈칸 추론 필승법', 
-    duration: '04:50', 
-    thumbnail: 'https://img.youtube.com/vi/MultiuKj8vM/mqdefault.jpg', 
-    completed: false, 
-    subject: '영어',
-    videoUrl: 'https://www.youtube.com/embed/MultiuKj8vM'
-  },
-  { 
-    id: '3', 
-    title: '물리: 뉴턴 법칙 실생활 예시', 
-    duration: '03:30', 
-    thumbnail: 'https://img.youtube.com/vi/T0W0n2Y6_bM/mqdefault.jpg', 
-    completed: false, 
-    subject: '과학',
-    videoUrl: 'https://www.youtube.com/embed/T0W0n2Y6_bM'
-  },
-  { 
-    id: '4', 
-    title: '현대시: 시적 화자의 정서 찾기', 
-    duration: '05:00', 
-    thumbnail: 'https://img.youtube.com/vi/Xm3h3r3W5jE/mqdefault.jpg', 
-    completed: false, 
-    subject: '국어',
-    videoUrl: 'https://www.youtube.com/embed/Xm3h3r3W5jE'
-  },
-  { 
-    id: '5', 
-    title: '한국사: 개화기 흐름 한눈에', 
-    duration: '04:15', 
-    thumbnail: 'https://img.youtube.com/vi/S5rL4p0Q2jE/mqdefault.jpg', 
-    completed: false, 
-    subject: '한국사',
-    videoUrl: 'https://www.youtube.com/embed/S5rL4p0Q2jE'
-  },
-];
+// Start with an empty list as requested
+const initialCourses: Course[] = [];
 
 const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName }) => {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -76,14 +31,18 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   useEffect(() => {
     setIsLoading(true);
     const loadedData = loadUserData(userId, 'micro_learning', initialCourses);
-    setCourses(loadedData);
+    
+    // Filter out legacy sample data (IDs 1-5) to keep only user-uploaded content
+    // User uploaded content uses Date.now() which produces a much longer ID string (13+ chars)
+    const cleanData = loadedData.filter(c => c.id.length > 5);
+    
+    setCourses(cleanData);
     setIsLoading(false);
   }, [userId]);
 
   // Save data whenever courses change
   useEffect(() => {
     // Only save if we have finished loading. 
-    // Removed 'courses.length > 0' check so empty lists can be saved (e.g. after deleting all).
     if (!isLoading) {
       saveUserData(userId, 'micro_learning', courses);
     }
@@ -157,7 +116,9 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
     ? courses 
     : courses.filter(c => c.subject === activeFilter);
 
-  const progress = Math.round((courses.filter(c => c.completed).length / courses.length) * 100) || 0;
+  const progress = courses.length > 0 
+    ? Math.round((courses.filter(c => c.completed).length / courses.length) * 100) 
+    : 0;
 
   if (role === UserRole.TEACHER) {
     return (
@@ -184,26 +145,30 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
         </div>
         <h3 className="font-semibold text-slate-700">최근 업로드된 강의</h3>
         <div className="space-y-3">
-          {courses.slice(0, 3).map(course => (
-             <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group">
-               <div className="w-16 h-9 bg-slate-300 rounded overflow-hidden flex-shrink-0 relative cursor-pointer" onClick={() => handlePlayVideo(course)}>
-                 <img src={course.thumbnail} alt="" className="w-full h-full object-cover" />
-                 <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                   <PlayCircle className="w-4 h-4 text-white" />
+          {courses.length === 0 ? (
+            <p className="text-slate-400 text-sm">등록된 강의가 없습니다.</p>
+          ) : (
+            courses.slice(0, 3).map(course => (
+               <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group">
+                 <div className="w-16 h-9 bg-slate-300 rounded overflow-hidden flex-shrink-0 relative cursor-pointer" onClick={() => handlePlayVideo(course)}>
+                   <img src={course.thumbnail} alt="" className="w-full h-full object-cover" />
+                   <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                     <PlayCircle className="w-4 h-4 text-white" />
+                   </div>
                  </div>
+                 <div className="flex-1">
+                   <div className="font-bold text-sm truncate">{course.title}</div>
+                   <div className="text-xs text-slate-500">{course.subject} • {course.duration}</div>
+                 </div>
+                 <button 
+                    onClick={(e) => handleDeleteCourse(e, course.id)}
+                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                 >
+                   <Trash2 className="w-4 h-4" />
+                 </button>
                </div>
-               <div className="flex-1">
-                 <div className="font-bold text-sm truncate">{course.title}</div>
-                 <div className="text-xs text-slate-500">{course.subject} • {course.duration}</div>
-               </div>
-               <button 
-                  onClick={(e) => handleDeleteCourse(e, course.id)}
-                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
-               >
-                 <Trash2 className="w-4 h-4" />
-               </button>
-             </div>
-          ))}
+            ))
+          )}
         </div>
         
         {/* Add Modal Reuse */}
@@ -293,51 +258,59 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       </div>
 
       {/* Video Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredCourses.map((course) => (
-          <div 
-            key={course.id} 
-            className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
-          >
-            {/* Thumbnail Area - Triggers Video */}
-            <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
-              <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
-              <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                <PlayCircle className="w-12 h-12 text-white/90 drop-shadow-lg group-hover:scale-110 transition-transform" />
-              </div>
-              <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-md">
-                {course.duration}
-              </span>
-            </div>
-            
-            {/* Content Area */}
-            <div className="p-4">
-              <div className="flex justify-between items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-bold text-indigo-600 mb-1 block">{course.subject}</span>
-                  <h3 className="font-bold text-slate-800 leading-tight text-sm truncate">{course.title}</h3>
+      {filteredCourses.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl border-dashed border-2 border-slate-200">
+          <PlayCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500 font-bold">등록된 강의가 없습니다.</p>
+          <p className="text-slate-400 text-sm mt-1">우측 상단 + 버튼을 눌러 강의를 추가해보세요!</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredCourses.map((course) => (
+            <div 
+              key={course.id} 
+              className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
+            >
+              {/* Thumbnail Area - Triggers Video */}
+              <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
+                <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                  <PlayCircle className="w-12 h-12 text-white/90 drop-shadow-lg group-hover:scale-110 transition-transform" />
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button 
-                    onClick={(e) => toggleComplete(e, course.id)}
-                    className={`p-1 rounded-full transition-colors ${course.completed ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
-                    title={course.completed ? "학습 완료 취소" : "학습 완료 체크"}
-                  >
-                    <CheckCircle className="w-6 h-6 fill-current" />
-                  </button>
-                  <button 
-                    onClick={(e) => handleDeleteCourse(e, course.id)}
-                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                    title="삭제"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-md">
+                  {course.duration}
+                </span>
+              </div>
+              
+              {/* Content Area */}
+              <div className="p-4">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-bold text-indigo-600 mb-1 block">{course.subject}</span>
+                    <h3 className="font-bold text-slate-800 leading-tight text-sm truncate">{course.title}</h3>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button 
+                      onClick={(e) => toggleComplete(e, course.id)}
+                      className={`p-1 rounded-full transition-colors ${course.completed ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                      title={course.completed ? "학습 완료 취소" : "학습 완료 체크"}
+                    >
+                      <CheckCircle className="w-6 h-6 fill-current" />
+                    </button>
+                    <button 
+                      onClick={(e) => handleDeleteCourse(e, course.id)}
+                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                      title="삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Add Modal */}
       {showAddModal && (
