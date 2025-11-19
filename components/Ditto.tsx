@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GradeRecord, Course, Challenge } from '../types';
+import { GradeRecord, Challenge } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
@@ -35,13 +35,14 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
     setFeedback(savedReflectionData.feedback || null);
 
     // Load Activities for Score Calculation
-    const courses: Course[] = loadUserData(userId, 'micro_learning', []);
+    // NOTE: MicroLearning now uses 'course_progress' to store just IDs of completed courses
+    const completedCourseIds = loadUserData<string[]>(userId, 'course_progress', []);
     const challenges: Challenge[] = loadUserData(userId, 'god_saeng', []);
 
     // Calculate Score
     // 1 completed course = 5 points
     // 1 challenge day = 1 point
-    const courseScore = courses.filter(c => c.completed).length * 5;
+    const courseScore = completedCourseIds.length * 5;
     const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
     
     // Base score starts at 62 (last history point)

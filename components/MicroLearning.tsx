@@ -10,13 +10,12 @@ interface MicroLearningProps {
   userName: string;
 }
 
-// Start with an empty list as requested
-const initialCourses: Course[] = [];
+// Key for shared content accessible by all users
+const SHARED_USER_KEY = 'SHARED_CONTENT';
 
 const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName }) => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>('All');
-  const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   
   // Video Player State
@@ -27,38 +26,75 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const [newCourseSubject, setNewCourseSubject] = useState('수학');
   const [newVideoUrl, setNewVideoUrl] = useState('');
 
-  // Load data on mount or when userId changes
+  // 1. Load Data: Fetch Shared Courses AND Personal Progress
   useEffect(() => {
-    setIsLoading(true);
-    const loadedData = loadUserData(userId, 'micro_learning', initialCourses);
+    // Load the master list of courses (managed by teachers, visible to all)
+    const sharedCourses = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
     
-    // Filter out legacy sample data (IDs 1-5) to keep only user-uploaded content
-    // User uploaded content uses Date.now() which produces a much longer ID string (13+ chars)
-    const cleanData = loadedData.filter(c => c.id.length > 5);
-    
-    setCourses(cleanData);
-    setIsLoading(false);
+    // Load the user's personal progress (list of completed course IDs)
+    const myCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
+
+    // Merge them to create the view model
+    // Filter out any courses that might have been deleted from shared but exist in progress (optional, but good for cleanup)
+    const mergedCourses = sharedCourses.map(course => ({
+      ...course,
+      completed: myCompletedIds.includes(course.id)
+    }));
+
+    setCourses(mergedCourses);
   }, [userId]);
 
-  // Save data whenever courses change
-  useEffect(() => {
-    // Only save if we have finished loading. 
-    if (!isLoading) {
-      saveUserData(userId, 'micro_learning', courses);
+  // 2. Helper to update shared courses (Teacher Only)
+  const updateSharedCourses = (newCourseList: Course[]) => {
+    saveUserData(SHARED_USER_KEY, 'courses', newCourseList);
+    // We also need to update local state to reflect changes immediately
+    // Preserve current completion status for the UI
+    const myCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
+    const merged = newCourseList.map(c => ({
+      ...c,
+      completed: myCompletedIds.includes(c.id)
+    }));
+    setCourses(merged);
+  };
+
+  // 3. Helper to update personal progress (Student/Teacher)
+  const updatePersonalProgress = (courseId: string, isComplete: boolean) => {
+    const currentCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
+    let newCompletedIds;
+    
+    if (isComplete) {
+      newCompletedIds = [...new Set([...currentCompletedIds, courseId])];
+    } else {
+      newCompletedIds = currentCompletedIds.filter(id => id !== courseId);
     }
-  }, [courses, userId, isLoading]);
+    
+    saveUserData(userId, 'course_progress', newCompletedIds);
+    
+    // Update local UI state
+    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, completed: isComplete } : c));
+  };
+
 
   const toggleComplete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (role === UserRole.TEACHER) return;
-    setCourses(prev => prev.map(c => c.id === id ? { ...c, completed: !c.completed } : c));
+    // Find current status
+    const course = courses.find(c => c.id === id);
+    if (course) {
+      updatePersonalProgress(id, !course.completed);
+    }
   };
 
   const handleDeleteCourse = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault(); 
-    if (window.confirm('정말 이 강의를 삭제하시겠습니까?')) {
-      setCourses(prev => prev.filter(c => c.id !== id));
+    
+    // Strict check: Only teachers can delete
+    if (role !== UserRole.TEACHER) return;
+
+    if (window.confirm('정말 이 강의를 삭제하시겠습니까? 모든 학생들의 목록에서 사라집니다.')) {
+      const currentShared = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
+      const updatedShared = currentShared.filter(c => c.id !== id);
+      updateSharedCourses(updatedShared);
     }
   };
 
@@ -71,7 +107,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const handleAddCourse = () => {
     if (!newCourseTitle.trim()) return;
     
-    let thumbnail = `https://picsum.photos/400/225?random=${courses.length + 10}`;
+    let thumbnail = `https://picsum.photos/400/225?random=${Date.now()}`;
     let videoUrl = '';
     
     // Process YouTube URL if provided
@@ -94,7 +130,10 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       videoUrl: videoUrl
     };
 
-    setCourses([newCourse, ...courses]);
+    // Load current shared list and append
+    const currentShared = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
+    updateSharedCourses([newCourse, ...currentShared]);
+
     setNewCourseTitle('');
     setNewVideoUrl('');
     setShowAddModal(false);
@@ -135,34 +174,40 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
             <Plus className="w-4 h-4" /> 강의 업로드
           </button>
         </div>
-        {/* Teacher stats omitted for brevity, reusing existing layout logic in real app */}
+        {/* Teacher stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-indigo-50 p-4 rounded-xl">
-            <p className="text-sm text-indigo-600 font-medium">평균 진도율</p>
-            <p className="text-3xl font-bold text-indigo-900">78%</p>
+            <p className="text-sm text-indigo-600 font-medium">등록된 강의 수</p>
+            <p className="text-3xl font-bold text-indigo-900">{courses.length}개</p>
           </div>
-          {/* ... other stats ... */}
+          <div className="bg-purple-50 p-4 rounded-xl">
+            <p className="text-sm text-purple-600 font-medium">과목 수</p>
+            <p className="text-3xl font-bold text-purple-900">{new Set(courses.map(c => c.subject)).size}개</p>
+          </div>
         </div>
-        <h3 className="font-semibold text-slate-700">최근 업로드된 강의</h3>
+
+        <h3 className="font-semibold text-slate-700 mt-4">전체 강의 목록 (학생들에게 보여지는 화면)</h3>
         <div className="space-y-3">
           {courses.length === 0 ? (
-            <p className="text-slate-400 text-sm">등록된 강의가 없습니다.</p>
+            <p className="text-slate-400 text-sm">등록된 강의가 없습니다. 학생들을 위해 강의를 올려주세요!</p>
           ) : (
-            courses.slice(0, 3).map(course => (
-               <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group">
-                 <div className="w-16 h-9 bg-slate-300 rounded overflow-hidden flex-shrink-0 relative cursor-pointer" onClick={() => handlePlayVideo(course)}>
+            courses.map(course => (
+               <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group border border-slate-100 hover:border-indigo-200 transition-colors">
+                 <div className="w-24 h-14 bg-slate-300 rounded overflow-hidden flex-shrink-0 relative cursor-pointer group-hover:ring-2 ring-indigo-200" onClick={() => handlePlayVideo(course)}>
                    <img src={course.thumbnail} alt="" className="w-full h-full object-cover" />
                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                     <PlayCircle className="w-4 h-4 text-white" />
+                     <PlayCircle className="w-6 h-6 text-white" />
                    </div>
                  </div>
-                 <div className="flex-1">
-                   <div className="font-bold text-sm truncate">{course.title}</div>
+                 <div className="flex-1 min-w-0">
+                   <div className="font-bold text-sm truncate text-slate-800">{course.title}</div>
                    <div className="text-xs text-slate-500">{course.subject} • {course.duration}</div>
                  </div>
+                 {/* Teacher Only Delete Button */}
                  <button 
                     onClick={(e) => handleDeleteCourse(e, course.id)}
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    title="강의 삭제 (모든 학생에게서 삭제됨)"
                  >
                    <Trash2 className="w-4 h-4" />
                  </button>
@@ -173,23 +218,28 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
         
         {/* Add Modal Reuse */}
         {showAddModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-fade-in-up">
-               {/* Same Modal Content as Student View but tailored */}
-               <h3 className="font-bold text-lg mb-4">새 강의 업로드</h3>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl">
+               <h3 className="font-bold text-lg mb-4 text-slate-800">새 강의 업로드</h3>
                <div className="space-y-4">
-                <input 
-                    value={newCourseTitle}
-                    onChange={(e) => setNewCourseTitle(e.target.value)}
-                    className="w-full p-3 bg-slate-50 rounded-xl border outline-none" 
-                    placeholder="강의 제목"
-                  />
-                  <input 
-                    value={newVideoUrl}
-                    onChange={(e) => setNewVideoUrl(e.target.value)}
-                    className="w-full p-3 bg-slate-50 rounded-xl border outline-none" 
-                    placeholder="유튜브 링크 (https://youtu.be/...)"
-                  />
+                <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">강의 제목</label>
+                    <input 
+                        value={newCourseTitle}
+                        onChange={(e) => setNewCourseTitle(e.target.value)}
+                        className="w-full p-3 bg-slate-50 rounded-xl border outline-none focus:ring-2 focus:ring-indigo-500" 
+                        placeholder="강의 제목"
+                    />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">유튜브 링크</label>
+                    <input 
+                        value={newVideoUrl}
+                        onChange={(e) => setNewVideoUrl(e.target.value)}
+                        className="w-full p-3 bg-slate-50 rounded-xl border outline-none focus:ring-2 focus:ring-indigo-500" 
+                        placeholder="https://youtu.be/..."
+                    />
+                </div>
                   <select 
                     value={newCourseSubject}
                     onChange={(e) => setNewCourseSubject(e.target.value)}
@@ -199,7 +249,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 pt-2">
                     <button onClick={() => setShowAddModal(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">취소</button>
                     <button onClick={handleAddCourse} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold">업로드</button>
                   </div>
@@ -207,10 +257,43 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
             </div>
           </div>
         )}
+
+        {/* Video Player Modal (Teacher needs to verify links too) */}
+        {playingCourse && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setPlayingCourse(null)}>
+            <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                <div className="absolute top-4 right-4 z-10">
+                <button 
+                    onClick={() => setPlayingCourse(null)}
+                    className="bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md transition-colors"
+                >
+                    <X className="w-6 h-6" />
+                </button>
+                </div>
+                
+                <div className="aspect-video w-full bg-black flex items-center justify-center">
+                {playingCourse.videoUrl ? (
+                    <iframe 
+                    src={getSafeVideoUrl(playingCourse.videoUrl)}
+                    title={playingCourse.title}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    />
+                ) : (
+                    <div className="text-center text-white">
+                    <p className="text-lg font-bold mb-2">동영상을 재생할 수 없습니다.</p>
+                    </div>
+                )}
+                </div>
+            </div>
+            </div>
+        )}
       </div>
     );
   }
 
+  // Student View
   return (
     <div className="space-y-6">
       {/* Header Section */}
@@ -219,13 +302,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
         <div className="relative z-10">
             <div className="flex justify-between items-start mb-2">
                 <h1 className="text-2xl font-bold">{userName}님의 숏-클래스 ⚡</h1>
-                <button 
-                  onClick={() => setShowAddModal(true)}
-                  className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-full transition-colors backdrop-blur-sm"
-                  title="강의 추가"
-                >
-                  <Plus className="w-5 h-5" />
-                </button>
             </div>
             <p className="text-indigo-100 mb-4 text-sm">이동 시간에 딱 3분! 핵심만 쏙쏙 뽑아먹자.</p>
             <div className="flex items-center gap-4">
@@ -262,7 +338,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
         <div className="text-center py-12 bg-white rounded-xl border-dashed border-2 border-slate-200">
           <PlayCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 font-bold">등록된 강의가 없습니다.</p>
-          <p className="text-slate-400 text-sm mt-1">우측 상단 + 버튼을 눌러 강의를 추가해보세요!</p>
+          <p className="text-slate-400 text-sm mt-1">선생님이 곧 강의를 올려주실 거예요!</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -297,76 +373,12 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                     >
                       <CheckCircle className="w-6 h-6 fill-current" />
                     </button>
-                    <button 
-                      onClick={(e) => handleDeleteCourse(e, course.id)}
-                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
-                      title="삭제"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {/* Delete Button is REMOVED for students */}
                   </div>
                 </div>
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Add Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-xl text-slate-800">새 강의 추가</h3>
-              <button onClick={() => setShowAddModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
-            </div>
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">강의 제목</label>
-                <input 
-                  value={newCourseTitle}
-                  onChange={(e) => setNewCourseTitle(e.target.value)}
-                  className="w-full p-4 bg-slate-50 rounded-xl border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all" 
-                  placeholder="강의 제목을 입력하세요"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-1">
-                  <Youtube className="w-4 h-4 text-red-500" /> 유튜브 링크 (선택)
-                </label>
-                <input 
-                  value={newVideoUrl}
-                  onChange={(e) => setNewVideoUrl(e.target.value)}
-                  className="w-full p-4 bg-slate-50 rounded-xl border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all" 
-                  placeholder="https://youtu.be/..."
-                />
-                <p className="text-xs text-slate-400 mt-1">링크 입력 시 썸네일이 자동 생성됩니다.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">과목 선택</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {['국어', '수학', '영어', '한국사', '과학', '사회'].map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setNewCourseSubject(s)}
-                      className={`py-2 rounded-lg text-sm font-bold transition-colors ${
-                        newCourseSubject === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <button 
-                onClick={handleAddCourse}
-                disabled={!newCourseTitle.trim()}
-                className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-2"
-              >
-                강의 추가하기
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
