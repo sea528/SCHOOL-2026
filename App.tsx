@@ -44,7 +44,7 @@ const App: React.FC = () => {
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 h-14 flex items-center justify-between max-w-md mx-auto w-full">
         <div className="flex items-center gap-2 text-indigo-700">
           <School className="w-6 h-6" />
-          <span className="font-bold tracking-tight">SCHOOL 2026</span>
+          <span className="font-jua text-xl pt-1">갓생스쿨</span>
         </div>
         
         <div className="flex items-center gap-2">

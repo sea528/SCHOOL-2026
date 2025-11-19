@@ -32,8 +32,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm mb-4">
             <School className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-1">SCHOOL 2026</h1>
-          <p className="text-indigo-100 text-sm">미래를 여는 스마트 교육 플랫폼</p>
+          <h1 className="text-3xl font-jua text-white mb-1 tracking-wide">갓생스쿨</h1>
+          <p className="text-indigo-100 text-lg font-jua">너도해봐 ✨</p>
         </div>
         
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
@@ -64,7 +64,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
           <button
             type="submit"
-            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transform hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transform hover:scale-[1.02] transition-all flex items-center justify-center gap-2 font-jua"
           >
             등교하기 <ArrowRight className="w-5 h-5" />
           </button>
