@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Course, UserRole } from '../types';
-import { CheckCircle, PlayCircle, BarChart2, Plus, X, Trash2, Youtube } from 'lucide-react';
+import { CheckCircle, PlayCircle, BarChart2, Plus, X, Trash2, ExternalLink } from 'lucide-react';
 import { loadUserData, saveUserData } from '../services/storageService';
 
 interface MicroLearningProps {
@@ -18,9 +18,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const [activeFilter, setActiveFilter] = useState<string>('All');
   const [showAddModal, setShowAddModal] = useState(false);
   
-  // Video Player State
-  const [playingCourse, setPlayingCourse] = useState<Course | null>(null);
-
   // Form state for new course
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [newCourseSubject, setNewCourseSubject] = useState('수학');
@@ -115,8 +112,10 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       const videoId = getYouTubeId(newVideoUrl);
       if (videoId) {
         thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
-        // Construct embed URL
+        // Save as Embed URL internally for consistency, but we will convert it when playing
         videoUrl = `https://www.youtube.com/embed/${videoId}`;
+      } else {
+        videoUrl = newVideoUrl; // Keep original if regex fails
       }
     }
 
@@ -140,15 +139,22 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   };
 
   const handlePlayVideo = (course: Course) => {
-    setPlayingCourse(course);
-  };
+    if (!course.videoUrl) {
+      alert("재생할 수 있는 동영상 링크가 없습니다.");
+      return;
+    }
 
-  // Helper to get safe video URL with origin
-  const getSafeVideoUrl = (url: string) => {
-    if (!url) return '';
-    const origin = window.location.origin;
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}autoplay=1&mute=0&origin=${origin}`;
+    // Logic to open in native app/external tab
+    let targetUrl = course.videoUrl;
+    
+    // If it's a YouTube Embed URL, convert to Watch URL for better App deep linking
+    const videoId = getYouTubeId(course.videoUrl);
+    if (videoId) {
+      targetUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    }
+
+    // Open in new tab (triggers App on mobile, New Tab on Desktop)
+    window.open(targetUrl, '_blank');
   };
 
   const filteredCourses = activeFilter === 'All' 
@@ -200,7 +206,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                    </div>
                  </div>
                  <div className="flex-1 min-w-0">
-                   <div className="font-bold text-sm truncate text-slate-800">{course.title}</div>
+                   <div className="font-bold text-sm truncate text-slate-800 cursor-pointer hover:text-indigo-600" onClick={() => handlePlayVideo(course)}>{course.title}</div>
                    <div className="text-xs text-slate-500">{course.subject} • {course.duration}</div>
                  </div>
                  {/* Teacher Only Delete Button */}
@@ -256,38 +262,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                </div>
             </div>
           </div>
-        )}
-
-        {/* Video Player Modal (Teacher needs to verify links too) */}
-        {playingCourse && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setPlayingCourse(null)}>
-            <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
-                <div className="absolute top-4 right-4 z-10">
-                <button 
-                    onClick={() => setPlayingCourse(null)}
-                    className="bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md transition-colors"
-                >
-                    <X className="w-6 h-6" />
-                </button>
-                </div>
-                
-                <div className="aspect-video w-full bg-black flex items-center justify-center">
-                {playingCourse.videoUrl ? (
-                    <iframe 
-                    src={getSafeVideoUrl(playingCourse.videoUrl)}
-                    title={playingCourse.title}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    />
-                ) : (
-                    <div className="text-center text-white">
-                    <p className="text-lg font-bold mb-2">동영상을 재생할 수 없습니다.</p>
-                    </div>
-                )}
-                </div>
-            </div>
-            </div>
         )}
       </div>
     );
@@ -347,11 +321,13 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
               key={course.id} 
               className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
             >
-              {/* Thumbnail Area - Triggers Video */}
+              {/* Thumbnail Area - Triggers External Link */}
               <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
                 <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
                 <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <PlayCircle className="w-12 h-12 text-white/90 drop-shadow-lg group-hover:scale-110 transition-transform" />
+                  <div className="bg-white/20 backdrop-blur-sm p-3 rounded-full group-hover:scale-110 transition-transform">
+                    <ExternalLink className="w-8 h-8 text-white drop-shadow-md" />
+                  </div>
                 </div>
                 <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-md">
                   {course.duration}
@@ -363,7 +339,12 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <span className="text-xs font-bold text-indigo-600 mb-1 block">{course.subject}</span>
-                    <h3 className="font-bold text-slate-800 leading-tight text-sm truncate">{course.title}</h3>
+                    <h3 
+                        className="font-bold text-slate-800 leading-tight text-sm truncate cursor-pointer hover:text-indigo-600"
+                        onClick={() => handlePlayVideo(course)}
+                    >
+                        {course.title}
+                    </h3>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button 
@@ -373,50 +354,11 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                     >
                       <CheckCircle className="w-6 h-6 fill-current" />
                     </button>
-                    {/* Delete Button is REMOVED for students */}
                   </div>
                 </div>
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Video Player Modal */}
-      {playingCourse && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in" onClick={() => setPlayingCourse(null)}>
-          <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <div className="absolute top-4 right-4 z-10">
-              <button 
-                onClick={() => setPlayingCourse(null)}
-                className="bg-white/20 hover:bg-white/40 text-white p-2 rounded-full backdrop-blur-md transition-colors"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="aspect-video w-full bg-black flex items-center justify-center">
-              {playingCourse.videoUrl ? (
-                <iframe 
-                  src={getSafeVideoUrl(playingCourse.videoUrl)}
-                  title={playingCourse.title}
-                  className="w-full h-full"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <div className="text-center text-white">
-                  <p className="text-lg font-bold mb-2">동영상을 재생할 수 없습니다.</p>
-                  <p className="text-sm text-gray-400">유효한 동영상 URL이 없습니다.</p>
-                </div>
-              )}
-            </div>
-            
-            <div className="bg-slate-900 p-4 text-white">
-              <h3 className="font-bold text-lg">{playingCourse.title}</h3>
-              <p className="text-slate-400 text-sm">{playingCourse.subject} • {playingCourse.duration}</p>
-            </div>
-          </div>
         </div>
       )}
     </div>
