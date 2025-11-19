@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GradeRecord } from '../types';
+import { GradeRecord, Course, Challenge } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Sparkles, Edit3, MessageCircle, Save } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
@@ -9,26 +9,50 @@ interface DittoProps {
   userId: string;
 }
 
-const initialGrades: GradeRecord[] = [
-  { term: '3월 모의', score: 68, subject: '수학' },
-  { term: '6월 모의', score: 74, subject: '수학' },
-  { term: '9월 모의', score: 82, subject: '수학' },
-  { term: '11월 모의', score: 88, subject: '수학' },
+// Simulate past history
+const baseHistory: GradeRecord[] = [
+  { term: '입학', score: 40, subject: '종합' },
+  { term: '1학기', score: 55, subject: '종합' },
+  { term: '여름방학', score: 62, subject: '종합' },
 ];
 
 const Ditto: React.FC<DittoProps> = ({ userId }) => {
-  const [grades] = useState<GradeRecord[]>(initialGrades); // Grades are mock for now, or could be loaded similarly
+  const [graphData, setGraphData] = useState<GradeRecord[]>(baseHistory);
   const [reflection, setReflection] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load saved reflection/feedback
+  // Load everything to calculate the dynamic "Current" growth score
   useEffect(() => {
     setIsLoading(true);
-    const savedData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: null });
-    setReflection(savedData.reflection || '');
-    setFeedback(savedData.feedback || null);
+    
+    // Load Reflection
+    const savedReflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: null });
+    setReflection(savedReflectionData.reflection || '');
+    setFeedback(savedReflectionData.feedback || null);
+
+    // Load Activities for Score Calculation
+    const courses: Course[] = loadUserData(userId, 'micro_learning', []);
+    const challenges: Challenge[] = loadUserData(userId, 'god_saeng', []);
+
+    // Calculate Score
+    // 1 completed course = 5 points
+    // 1 challenge day = 1 point
+    const courseScore = courses.filter(c => c.completed).length * 5;
+    const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
+    
+    // Base score starts at 62 (last history point)
+    const currentScore = 62 + courseScore + challengeScore;
+    const cappedScore = Math.min(currentScore, 100); // Max 100
+
+    const currentDataPoint = {
+      term: '현재',
+      score: cappedScore,
+      subject: '종합'
+    };
+
+    setGraphData([...baseHistory, currentDataPoint]);
     setIsLoading(false);
   }, [userId]);
 
@@ -44,8 +68,12 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
       return;
     }
     setIsGenerating(true);
-    const gradeSummary = `3월 ${grades[0].score}점에서 11월 ${grades[grades.length-1].score}점으로 상승`;
-    const aiResponse = await generateFeedback(reflection, gradeSummary);
+    
+    const startScore = graphData[0].score;
+    const currentScore = graphData[graphData.length - 1].score;
+    const gradeChangeSummary = `입학 당시 ${startScore}점에서 현재 ${currentScore}점으로 성장`;
+    
+    const aiResponse = await generateFeedback(reflection, gradeChangeSummary);
     setFeedback(aiResponse);
     setIsGenerating(false);
     
@@ -53,10 +81,13 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
     saveUserData(userId, 'ditto_reflection', { reflection, feedback: aiResponse });
   };
 
+  const currentScore = graphData[graphData.length - 1]?.score || 0;
+  const growth = currentScore - graphData[0].score;
+
   return (
     <div className="space-y-8 pb-20">
       <header className="space-y-2">
-        <h1 className="text-3xl font-black text-slate-900">Ditto 소비 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
+        <h1 className="text-3xl font-black text-slate-900">Ditto 성장 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
         <p className="text-slate-500">나의 변화 과정을 기록하고 친구들과 공유해보세요.</p>
       </header>
 
@@ -64,18 +95,18 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
       <div className="bg-white p-6 rounded-3xl shadow-lg shadow-indigo-50 border border-indigo-50">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <TrendingUp className="text-rose-500" /> 성적 변화 그래프
+            <TrendingUp className="text-rose-500" /> 나의 성장 그래프
           </h2>
-          <span className="px-3 py-1 bg-rose-100 text-rose-600 rounded-full text-xs font-bold">
-            +20점 상승 🔥
+          <span className="px-3 py-1 bg-rose-100 text-rose-600 rounded-full text-xs font-bold animate-pulse">
+            +{growth}점 성장중 🚀
           </span>
         </div>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={grades}>
+            <LineChart data={graphData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis dataKey="term" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#64748b'}} dy={10} />
-              <YAxis hide domain={['dataMin - 10', 'dataMax + 10']} />
+              <YAxis hide domain={[0, 100]} />
               <Tooltip 
                 contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                 itemStyle={{ color: '#4f46e5', fontWeight: 'bold' }}
@@ -84,13 +115,17 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
                 type="monotone" 
                 dataKey="score" 
                 stroke="#4f46e5" 
-                strokeWidth={3} 
-                dot={{ r: 4, fill: '#4f46e5', strokeWidth: 2, stroke: '#fff' }} 
-                activeDot={{ r: 6 }}
+                strokeWidth={4} 
+                dot={{ r: 6, fill: '#4f46e5', strokeWidth: 3, stroke: '#fff' }} 
+                activeDot={{ r: 8, fill: '#ec4899', stroke: '#fff' }}
+                animationDuration={1500}
               />
             </LineChart>
           </ResponsiveContainer>
         </div>
+        <p className="text-xs text-slate-400 text-center mt-4 bg-slate-50 py-2 rounded-lg">
+          💡 숏클래스 수강과 갓생챌린지 인증을 통해 성장 점수를 올릴 수 있습니다.
+        </p>
       </div>
 
       {/* Before & After Storytelling */}
@@ -117,7 +152,7 @@ const Ditto: React.FC<DittoProps> = ({ userId }) => {
               disabled={isGenerating}
               className="absolute bottom-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:bg-slate-400 transition-colors flex items-center gap-2 shadow-md"
             >
-              {isGenerating ? 'AI 분석중...' : <><Sparkles className="w-4 h-4" /> 선생님 피드백 받기</>}
+              {isGenerating ? 'AI 선생님께 전송중...' : <><Sparkles className="w-4 h-4" /> 선생님 피드백 받기</>}
             </button>
           </div>
 
