@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Course, Challenge } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet } from 'lucide-react';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
 import { loadUserData, saveUserData, downloadUserDataAsExcel } from '../services/storageService';
 
@@ -83,6 +83,18 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
     saveUserData(userId, 'ditto_reflection', { reflection, feedback: aiResponse });
   };
 
+  const handleCopyToSheets = () => {
+    const header = "시기\t점수\t과목";
+    const rows = graphData.map(d => `${d.term}\t${d.score}\t${d.subject}`).join('\n');
+    const text = `${header}\n${rows}`;
+    
+    navigator.clipboard.writeText(text).then(() => {
+      alert("성장 그래프 데이터가 복사되었습니다!\n구글 스프레드시트를 열고 Ctrl+V (붙여넣기) 하세요.");
+    }).catch(() => {
+      alert("복사에 실패했습니다.");
+    });
+  };
+
   const currentScore = graphData[graphData.length - 1]?.score || 0;
   const growth = currentScore - graphData[0].score;
 
@@ -91,12 +103,21 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName }) => {
       <header className="space-y-2">
         <div className="flex justify-between items-start">
           <h1 className="text-3xl font-black text-slate-900">Ditto 성장 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
-          <button 
-            onClick={() => downloadUserDataAsExcel(userId, userName)}
-            className="flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-green-200 hover:bg-green-700 transition-colors"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> 엑셀 저장
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleCopyToSheets}
+              className="flex items-center gap-1 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-slate-900 transition-colors"
+              title="구글 스프레드시트에 붙여넣기 좋게 복사합니다"
+            >
+              <Copy className="w-4 h-4" /> 구글 시트 복사
+            </button>
+            <button 
+              onClick={() => downloadUserDataAsExcel(userId, userName, graphData)}
+              className="flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-green-200 hover:bg-green-700 transition-colors"
+            >
+              <FileSpreadsheet className="w-4 h-4" /> 엑셀 저장
+            </button>
+          </div>
         </div>
         <p className="text-slate-500">나의 변화 과정을 기록하고 친구들과 공유해보세요.</p>
       </header>
