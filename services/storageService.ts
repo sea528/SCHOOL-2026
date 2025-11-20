@@ -1,6 +1,6 @@
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { User, Course, Challenge, UserRole } from '../types';
+import { User, Course, Challenge, UserRole, HandwritingLog } from '../types';
 
 const STORAGE_PREFIX = 'school2026_';
 
@@ -273,6 +273,52 @@ export const deleteChallengeFromSupabase = async (challengeId: string) => {
   }
 };
 
+// --- Handwriting Logs ---
+
+export const fetchHandwritingLogs = async (userId: string): Promise<HandwritingLog[]> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('handwriting_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error || !data) return [];
+    return data.map((log: any) => ({
+      id: log.id,
+      userId: log.user_id,
+      phrase: log.phrase,
+      createdAt: log.created_at
+    }));
+  } else {
+    const json = localStorage.getItem(`${STORAGE_PREFIX}handwriting_${userId}`);
+    return json ? JSON.parse(json) : [];
+  }
+};
+
+export const saveHandwritingLog = async (userId: string, phrase: string) => {
+  const newLog: HandwritingLog = {
+    id: Date.now().toString(),
+    userId,
+    phrase,
+    createdAt: new Date().toISOString()
+  };
+
+  if (isSupabaseConfigured) {
+    await supabase.from('handwriting_logs').insert([{
+      id: newLog.id,
+      user_id: userId,
+      phrase: phrase,
+      created_at: newLog.createdAt
+    }]);
+  } else {
+    const logs = await fetchHandwritingLogs(userId);
+    const updated = [newLog, ...logs];
+    localStorage.setItem(`${STORAGE_PREFIX}handwriting_${userId}`, JSON.stringify(updated));
+  }
+};
+
+
 // --- Ditto (Reflection) ---
 
 export const fetchReflection = async (userId: string) => {
@@ -360,7 +406,7 @@ export const getAllStudentGrowthData = async () => {
       };
     });
 
-    return result.filter(r => r.courseCount > 0 || r.reflection).sort((a, b) => b.courseCount - a.courseCount);
+    return result.sort((a, b) => b.courseCount - a.courseCount);
   } else {
     // Local Mode
     const result: any[] = [];
@@ -371,13 +417,11 @@ export const getAllStudentGrowthData = async () => {
       const progress = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}progress_${user.id}`) || '[]');
       const reflectionData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}reflection_${user.id}`) || '{}');
       
-      if (progress.length > 0 || reflectionData.reflection) {
-        result.push({
-          id: user.name,
-          courseCount: progress.length,
-          reflection: reflectionData.reflection || ''
-        });
-      }
+      result.push({
+        id: user.name,
+        courseCount: progress.length,
+        reflection: reflectionData.reflection || ''
+      });
     });
     
     return result.sort((a, b) => b.courseCount - a.courseCount);

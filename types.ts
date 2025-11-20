@@ -45,4 +45,11 @@ export interface Story {
   tags: string[];
 }
 
+export interface HandwritingLog {
+  id: string;
+  userId: string;
+  phrase: string;
+  createdAt: string;
+}
+
 export type ViewState = 'DASHBOARD' | 'MICRO_LEARNING' | 'GOD_SAENG' | 'DITTO';

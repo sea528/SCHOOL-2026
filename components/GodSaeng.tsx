@@ -1,15 +1,32 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge, UserRole } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2, RefreshCw } from 'lucide-react';
-import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
-import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats } from '../services/storageService';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles } from 'lucide-react';
+import { generateChallengeSummary, recommendChallenge, suggestChallengeTheme } from '../services/geminiService';
+import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
 interface GodSaengProps {
   userId: string;
   role?: UserRole;
 }
+
+const CSAT_QUOTES = [
+  "저 넓은 세상에서 큰 꿈을 펼쳐라",
+  "가장 넓은 길은 언제나 내 마음속에",
+  "나의 꿈은 맑은 바람이 되어서",
+  "많고 많은 사람 중에 그대 한 사람",
+  "너무 맑고 초롱한 그 중 하나 별이여",
+  "그대만큼 사랑스러운 사람을 본 일이 없다",
+  "흙에서 자란 내 마음 파아란 하늘빛",
+  "어둠 속에서도 빛나는 별이 되어라",
+  "당신의 꿈은 반드시 이루어진다"
+];
+
+const THEME_COLORS = [
+  'bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-teal-500', 
+  'bg-blue-500', 'bg-orange-500', 'bg-rose-500', 'bg-emerald-500', 'bg-cyan-500'
+];
 
 const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -19,6 +36,12 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   
+  // Handwriting State
+  const [currentQuote, setCurrentQuote] = useState('');
+  const [handwritingInput, setHandwritingInput] = useState('');
+  const [isHandwritingDone, setIsHandwritingDone] = useState(false);
+  const [handwritingDate, setHandwritingDate] = useState<string | null>(null);
+  
   // Teacher View Data
   const [studentStats, setStudentStats] = useState<{ name: string; totalDays: number; challengeCount: number }[]>([]);
 
@@ -27,7 +50,9 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [newDesc, setNewDesc] = useState('');
   const [newDays, setNewDays] = useState(30);
   const [newIcon, setNewIcon] = useState('');
+  const [newColor, setNewColor] = useState('bg-indigo-500');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isThemeLoading, setIsThemeLoading] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -40,6 +65,29 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       // Student Logic: Load personal data from DB
       const loadedData = await fetchChallenges(userId);
       setChallenges(loadedData);
+
+      // Handwriting Logic
+      const logs = await fetchHandwritingLogs(userId);
+      const now = new Date();
+      
+      // Determine this week's quote (simple rotation based on week number to keep it consistent for everyone)
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const weekNumber = Math.ceil((((now.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getDay() + 1) / 7);
+      const quoteIndex = weekNumber % CSAT_QUOTES.length;
+      setCurrentQuote(CSAT_QUOTES[quoteIndex]);
+
+      // Check if done this week (last 7 days is a simple check, or check same week number)
+      // Ideally, check if the last log was created in the current week.
+      // Simplified: check if there is a log within the last 6 days.
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 6); // Allow once every weekish
+      
+      const recentLog = logs.find(log => new Date(log.createdAt) > oneWeekAgo);
+      if (recentLog) {
+        setIsHandwritingDone(true);
+        setHandwritingDate(recentLog.createdAt);
+        setCurrentQuote(recentLog.phrase); // Show the one they did
+      }
     }
     setIsLoading(false);
   };
@@ -100,8 +148,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const handleAddChallenge = async () => {
     if (!newTitle.trim()) return;
     
-    const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-teal-500'];
     const icons = ['🎯', '🚀', '💎', '🍀'];
+    const finalIcon = newIcon || icons[Math.floor(Math.random() * icons.length)];
     
     const newChallenge: Challenge = {
       id: Date.now().toString(),
@@ -109,8 +157,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       description: newDesc || '나만의 멋진 챌린지',
       daysTotal: newDays,
       daysCompleted: 0,
-      badgeIcon: newIcon || icons[Math.floor(Math.random() * icons.length)],
-      color: colors[Math.floor(Math.random() * colors.length)]
+      badgeIcon: finalIcon,
+      color: newColor
     };
 
     // DB Save
@@ -126,6 +174,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     setNewDesc('');
     setNewDays(30);
     setNewIcon('');
+    setNewColor('bg-indigo-500');
   };
 
   const handleAiRecommend = async () => {
@@ -136,10 +185,36 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       setNewDesc(rec.description);
       setNewDays(rec.days);
       setNewIcon(rec.emoji);
+      if (rec.color) setNewColor(rec.color);
     } else {
       alert("AI 추천을 불러오지 못했습니다. 다시 시도해주세요.");
     }
     setIsAiLoading(false);
+  };
+
+  const handleAiThemeSuggest = async () => {
+    if (!newTitle.trim()) {
+      alert("챌린지 이름을 먼저 입력해주세요!");
+      return;
+    }
+    setIsThemeLoading(true);
+    const theme = await suggestChallengeTheme(newTitle);
+    if (theme) {
+      setNewIcon(theme.emoji);
+      setNewColor(theme.color);
+    }
+    setIsThemeLoading(false);
+  };
+
+  const handleHandwritingSubmit = async () => {
+    if (handwritingInput.trim() === currentQuote) {
+      await saveHandwritingLog(userId, currentQuote);
+      setIsHandwritingDone(true);
+      setHandwritingDate(new Date().toISOString());
+      alert("필적 확인 완료! 마음가짐이 기록되었습니다.");
+    } else {
+      alert("문구가 일치하지 않습니다. 띄어쓰기를 포함하여 정확히 입력해주세요.");
+    }
   };
 
   if (isLoading) {
@@ -255,8 +330,56 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
         </div>
       </div>
 
+      {/* Handwriting Section (OMR Style) */}
+      <div className="bg-white rounded-xl shadow-md border border-slate-300 overflow-hidden max-w-md mx-auto">
+        <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex justify-between items-center">
+           <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
+             <PenTool className="w-3 h-3" /> 주간 필적 확인란
+           </span>
+           <span className="text-[10px] text-slate-400 tracking-widest">2026학년도 대학수학능력시험 대비</span>
+        </div>
+        <div className="p-6 flex flex-col items-center space-y-4 bg-[#fffbf0]">
+          <p className="text-sm text-slate-500 font-medium mb-2">아래 문구를 정자로 기재하시오.</p>
+          
+          <div className="font-serif text-xl md:text-2xl text-slate-800 text-center leading-relaxed tracking-wide px-2 py-4 border-y-2 border-slate-200 w-full">
+            "{currentQuote}"
+          </div>
+
+          {isHandwritingDone ? (
+            <div className="w-full pt-2 relative">
+               <div className="w-full p-3 bg-transparent border-b border-slate-400 text-center font-serif text-lg text-slate-600">
+                 {currentQuote}
+               </div>
+               <div className="absolute top-[-10px] right-4 rotate-[-12deg] border-4 border-red-500 text-red-500 rounded-full w-16 h-16 flex items-center justify-center opacity-80 animate-fade-in">
+                  <span className="font-bold text-xs transform scale-110">확인됨</span>
+               </div>
+               <p className="text-[10px] text-center text-slate-400 mt-2">
+                 {new Date(handwritingDate || '').toLocaleDateString()} 기록 완료
+               </p>
+            </div>
+          ) : (
+            <div className="w-full space-y-3">
+              <input 
+                type="text" 
+                value={handwritingInput}
+                onChange={(e) => setHandwritingInput(e.target.value)}
+                placeholder="문구를 똑같이 입력하세요"
+                className="w-full p-3 bg-white border border-slate-300 focus:border-slate-800 outline-none text-center font-serif text-lg placeholder:font-sans placeholder:text-sm placeholder:text-slate-300"
+              />
+              <button 
+                onClick={handleHandwritingSubmit}
+                disabled={!handwritingInput}
+                className="w-full py-2 bg-slate-800 text-white text-xs font-bold hover:bg-slate-900 transition-colors disabled:bg-slate-300"
+              >
+                확인
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Challenge List Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center pt-4">
         <h2 className="font-bold text-lg text-slate-800 flex items-center gap-2">
           <Calendar className="w-5 h-5" /> 진행 중인 챌린지
         </h2>
@@ -402,13 +525,55 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">챌린지 이름</label>
-                <input 
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full p-4 bg-slate-50 rounded-xl border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all" 
-                  placeholder="예: 하루 물 2L 마시기"
-                />
+                <div className="flex gap-2">
+                  <input 
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="flex-1 p-4 bg-slate-50 rounded-xl border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all" 
+                    placeholder="예: 하루 물 2L 마시기"
+                  />
+                  <button 
+                    onClick={handleAiThemeSuggest}
+                    disabled={isThemeLoading || !newTitle}
+                    className="px-3 bg-slate-100 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex flex-col items-center justify-center gap-1"
+                    title="AI 테마 자동완성"
+                  >
+                    {isThemeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    <span className="text-[10px] font-bold">테마추천</span>
+                  </button>
+                </div>
               </div>
+              
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">테마 설정 (아이콘 & 색상)</label>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4">
+                   <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-sm ${newColor} text-white transition-colors duration-300`}>
+                        {newIcon || '✨'}
+                      </div>
+                      <input 
+                        value={newIcon}
+                        onChange={(e) => setNewIcon(e.target.value)}
+                        className="flex-1 p-3 bg-white rounded-lg border border-slate-200 text-sm outline-none focus:border-indigo-500"
+                        placeholder="아이콘 (이모지)"
+                      />
+                   </div>
+                   
+                   <div>
+                     <span className="text-xs font-bold text-slate-400 mb-2 block">대표 색상 선택</span>
+                     <div className="flex flex-wrap gap-2">
+                        {THEME_COLORS.map(color => (
+                          <button
+                            key={color}
+                            onClick={() => setNewColor(color)}
+                            className={`w-8 h-8 rounded-full ${color} transition-transform hover:scale-110 ${newColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110 shadow-md' : 'opacity-70 hover:opacity-100'}`}
+                          />
+                        ))}
+                     </div>
+                   </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">설명</label>
                 <input 

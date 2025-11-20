@@ -58,7 +58,7 @@ export const generateChallengeSummary = async (challenges: string[]): Promise<st
   }
 };
 
-export const recommendChallenge = async (): Promise<{title: string, description: string, days: number, emoji: string} | null> => {
+export const recommendChallenge = async (): Promise<{title: string, description: string, days: number, emoji: string, color: string} | null> => {
   const ai = getAiClient();
   if (!ai) return null;
 
@@ -67,12 +67,16 @@ export const recommendChallenge = async (): Promise<{title: string, description:
       고등학생이 학교 생활이나 자기개발을 위해 할 수 있는 트렌디하고 유익한 '갓생 챌린지' 하나를 추천해주세요.
       너무 뻔하지 않고 학생들이 좋아할만한 주제(공부, 운동, 멘탈, 습관 등)로 선정해주세요.
       
+      또한 챌린지의 분위기에 맞는 색상(Tailwind CSS class)을 다음 중에서 하나 골라주세요:
+      ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-teal-500', 'bg-blue-500', 'bg-orange-500', 'bg-rose-500', 'bg-emerald-500', 'bg-cyan-500']
+      
       응답은 반드시 다음 JSON 형식으로 해주세요:
       {
         "title": "챌린지 제목 (짧고 임팩트 있게)",
         "description": "구체적인 인증 방법 (한 문장)",
         "days": 추천 수행 기간 (숫자만, 14~30 사이),
-        "emoji": "관련 이모지 1개"
+        "emoji": "관련 이모지 1개",
+        "color": "bg-indigo-500" 
       }
     `;
 
@@ -94,15 +98,62 @@ export const recommendChallenge = async (): Promise<{title: string, description:
   }
 };
 
+export const suggestChallengeTheme = async (title: string): Promise<{ emoji: string, color: string } | null> => {
+  const ai = getAiClient();
+  if (!ai) return null;
+
+  try {
+    const prompt = `
+      Analyze the challenge title: "${title}".
+      Suggest a relevant emoji and a color theme (Tailwind CSS class).
+      Color options: ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-teal-500', 'bg-blue-500', 'bg-orange-500', 'bg-rose-500', 'bg-emerald-500', 'bg-cyan-500', 'bg-slate-600'].
+      
+      Return JSON only:
+      {
+        "emoji": "🔥",
+        "color": "bg-orange-500"
+      }
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text);
+    }
+    return null;
+  } catch (e) {
+    console.error("Theme Suggestion Error", e);
+    return null;
+  }
+};
+
 export const generateThumbnail = async (topic: string): Promise<string | null> => {
   const ai = getAiClient();
   if (!ai) return null;
 
   try {
-    // Using Imagen 3 model as per guidelines for high quality image generation
+    // Using Imagen 3 model with a prompt designed for MZ generation appeal
+    const prompt = `
+      Create a trendy, eye-catching YouTube thumbnail for a high school course about: "${topic}".
+      Target Audience: Gen Z / Alpha students (Korean teenagers).
+      Style: Vibrant, colorful, 3D render or high-quality vector art. "Pop" aesthetic. High energy.
+      
+      Text Instructions: 
+      Include short, punchy, and trendy Korean (Hangul) text overlays that summarize the topic or motivate the student.
+      Examples of the vibe (do not copy exactly, use relevant ones): "완전 정복", "이거면 끝", "성적 떡상", "핵심 쏙쏙", "폼 미쳤다".
+      The text must be large, bold, and readable.
+      
+      Negative Prompt: No Chinese characters (Hanzi), no boring academic textbook style, no blurry text.
+      Aspect Ratio: 16:9.
+    `;
+
     const response = await ai.models.generateImages({
       model: 'imagen-4.0-generate-001',
-      prompt: `A high-quality, visually appealing, modern, and minimalist educational illustration for a course thumbnail about: "${topic}". The style should be suitable for a high school education platform. Use bright and encouraging colors. 16:9 aspect ratio.`,
+      prompt: prompt,
       config: {
         numberOfImages: 1,
         aspectRatio: '16:9',

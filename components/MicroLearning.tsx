@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Course, UserRole } from '../types';
-import { CheckCircle, PlayCircle, BarChart2, Plus, Trash2, ExternalLink, Loader2, Flame, Sparkles, ImageIcon, Users, X } from 'lucide-react';
+import { CheckCircle, PlayCircle, BarChart2, Plus, Trash2, Loader2, Flame, Sparkles, ImageIcon, Users } from 'lucide-react';
 import { fetchCourses, fetchUserProgress, saveCourseToSupabase, deleteCourseFromSupabase, updateUserProgress } from '../services/storageService';
 import { generateThumbnail } from '../services/geminiService';
 
@@ -16,9 +16,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const [activeFilter, setActiveFilter] = useState<string>('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Video Player State
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   
   // Form state for new course
   const [newCourseTitle, setNewCourseTitle] = useState('');
@@ -80,17 +77,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
-  };
-
-  const getVideoSrc = (url?: string) => {
-    if (!url) return '';
-    const videoId = getYouTubeId(url);
-    if (videoId) {
-      // Construct a robust embed URL with origin to fix "Configuration Error" (Error 153)
-      // enablejsapi=1 and origin are crucial for some environments
-      return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&enablejsapi=1&origin=${window.location.origin}`;
-    }
-    return url;
   };
 
   const handleGenerateThumbnail = async () => {
@@ -160,7 +146,17 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       alert("재생할 수 있는 동영상 링크가 없습니다.");
       return;
     }
-    setSelectedCourse(course);
+    
+    let urlToOpen = course.videoUrl;
+    const videoId = getYouTubeId(course.videoUrl);
+    
+    // If it's a YouTube video, construct a 'watch' URL to trigger native apps on mobile
+    if (videoId) {
+      urlToOpen = `https://www.youtube.com/watch?v=${videoId}`;
+    }
+    
+    // Open in new tab (triggering native app if supported)
+    window.open(urlToOpen, '_blank');
   };
 
   const filteredCourses = activeFilter === 'All' 
@@ -331,23 +327,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
             </div>
           </div>
         )}
-
-        {/* Video Player Modal for Teacher */}
-        {selectedCourse && (
-          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedCourse(null)}>
-            <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative aspect-video" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setSelectedCourse(null)} className="absolute top-4 right-4 z-10 p-2 bg-black/50 text-white rounded-full hover:bg-black/80 transition-colors">
-                <X className="w-6 h-6" />
-              </button>
-              <iframe
-                src={getVideoSrc(selectedCourse.videoUrl)}
-                className="w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -462,23 +441,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Video Player Modal for Student */}
-      {selectedCourse && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedCourse(null)}>
-          <div className="w-full max-w-4xl bg-black rounded-2xl overflow-hidden shadow-2xl relative aspect-video" onClick={e => e.stopPropagation()}>
-             <button onClick={() => setSelectedCourse(null)} className="absolute top-4 right-4 z-10 p-2 bg-black/50 text-white rounded-full hover:bg-black/80 transition-colors">
-               <X className="w-6 h-6" />
-             </button>
-             <iframe
-               src={getVideoSrc(selectedCourse.videoUrl)}
-               className="w-full h-full"
-               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-               allowFullScreen
-             />
-          </div>
         </div>
       )}
     </div>
