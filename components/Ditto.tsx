@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Challenge, UserRole } from '../types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon, Loader2 } from 'lucide-react';
-import { generateFeedback } from '../services/geminiService';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon, Loader2, Bot } from 'lucide-react';
+import { generateFeedback, summarizeStudentReflection } from '../services/geminiService';
 import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, downloadUserDataAsExcel, getAllStudentGrowthData } from '../services/storageService';
 
 interface DittoProps {
@@ -17,6 +17,67 @@ const baseHistory: GradeRecord[] = [
   { term: '1학기', score: 55, subject: '종합' },
   { term: '여름방학', score: 62, subject: '종합' },
 ];
+
+// Sub-component for Teacher View to handle individual AI summaries
+const ReflectionCard: React.FC<{ student: { id: string; reflection: string } }> = ({ student }) => {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+
+  const handleSummarize = async () => {
+    if (isSummarizing) return;
+    setIsSummarizing(true);
+    const result = await summarizeStudentReflection(student.reflection);
+    setSummary(result);
+    setIsSummarizing(false);
+  };
+
+  return (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+            <UserIcon className="w-4 h-4 text-slate-500" />
+          </div>
+          <span className="font-bold text-slate-900">{student.id}</span>
+        </div>
+        <button
+          onClick={handleSummarize}
+          disabled={isSummarizing || !!summary}
+          className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all ${
+            summary 
+              ? 'bg-indigo-50 text-indigo-600 cursor-default' 
+              : 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:opacity-90'
+          }`}
+        >
+          {isSummarizing ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Bot className="w-3 h-3" />
+          )}
+          {summary ? '요약 완료' : 'AI 요약'}
+        </button>
+      </div>
+
+      {summary && (
+        <div className="mb-3 bg-indigo-50 border border-indigo-100 p-3 rounded-xl flex gap-3 animate-fade-in">
+          <div className="mt-0.5">
+             <Sparkles className="w-4 h-4 text-indigo-500" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-indigo-800 mb-1">AI 요약 리포트</p>
+            <p className="text-sm text-indigo-900 font-medium leading-snug">{summary}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-slate-50 p-4 rounded-xl text-slate-700 text-sm leading-relaxed relative">
+        <span className="absolute top-2 left-2 text-3xl text-slate-200 font-serif">"</span>
+        <p className="relative z-10 px-2">{student.reflection}</p>
+        <span className="absolute bottom-[-10px] right-4 text-3xl text-slate-200 font-serif">"</span>
+      </div>
+    </div>
+  );
+};
 
 const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
   const [graphData, setGraphData] = useState<GradeRecord[]>(baseHistory);
@@ -154,19 +215,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
           <div className="space-y-4">
             {reflectionList.length > 0 ? (
               reflectionList.map((student) => (
-                <div key={student.id} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
-                      <UserIcon className="w-4 h-4 text-slate-500" />
-                    </div>
-                    <span className="font-bold text-slate-900">{student.id}</span>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-xl text-slate-700 text-sm leading-relaxed relative">
-                    <span className="absolute top-2 left-2 text-3xl text-slate-200 font-serif">"</span>
-                    <p className="relative z-10 px-2">{student.reflection}</p>
-                    <span className="absolute bottom-[-10px] right-4 text-3xl text-slate-200 font-serif">"</span>
-                  </div>
-                </div>
+                <ReflectionCard key={student.id} student={student} />
               ))
             ) : (
               <div className="text-center py-10 text-slate-400 bg-slate-50 rounded-xl border-dashed border-2 border-slate-200">

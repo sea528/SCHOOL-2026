@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Course, UserRole } from '../types';
-import { CheckCircle, PlayCircle, BarChart2, Plus, Trash2, ExternalLink, Loader2 } from 'lucide-react';
+import { CheckCircle, PlayCircle, BarChart2, Plus, Trash2, ExternalLink, Loader2, Flame, Sparkles, ImageIcon, Users } from 'lucide-react';
 import { fetchCourses, fetchUserProgress, saveCourseToSupabase, deleteCourseFromSupabase, updateUserProgress } from '../services/storageService';
+import { generateThumbnail } from '../services/geminiService';
 
 interface MicroLearningProps {
   role: UserRole;
@@ -20,12 +21,16 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [newCourseSubject, setNewCourseSubject] = useState('수학');
   const [newVideoUrl, setNewVideoUrl] = useState('');
+  
+  // Thumbnail state
+  const [generatedThumbnail, setGeneratedThumbnail] = useState<string | null>(null);
+  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
 
   // Load Data
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      // 1. Fetch shared courses
+      // 1. Fetch shared courses (now sorted by popularity from service)
       const sharedCourses = await fetchCourses();
       // 2. Fetch user progress
       const myCompletedIds = await fetchUserProgress(userId);
@@ -74,20 +79,44 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
     return (match && match[2].length === 11) ? match[2] : null;
   };
 
+  const handleGenerateThumbnail = async () => {
+    if (!newCourseTitle) return;
+    setIsGeneratingThumbnail(true);
+    const imageUrl = await generateThumbnail(newCourseTitle);
+    if (imageUrl) {
+      setGeneratedThumbnail(imageUrl);
+    } else {
+      alert("이미지를 생성하지 못했습니다. 다시 시도해주세요.");
+    }
+    setIsGeneratingThumbnail(false);
+  };
+
   const handleAddCourse = async () => {
     if (!newCourseTitle.trim()) return;
     
-    let thumbnail = `https://picsum.photos/400/225?random=${Date.now()}`;
+    let thumbnail = '';
     let videoUrl = '';
     
+    // 1. Process Video URL
     if (newVideoUrl.trim()) {
       const videoId = getYouTubeId(newVideoUrl);
       if (videoId) {
-        thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
         videoUrl = `https://www.youtube.com/embed/${videoId}`;
+        // Set default YouTube thumbnail only if we don't have a generated one
+        if (!generatedThumbnail) {
+           thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+        }
       } else {
         videoUrl = newVideoUrl;
       }
+    }
+
+    // 2. Set Thumbnail: Priority is Generated -> YouTube -> Random
+    if (generatedThumbnail) {
+      thumbnail = generatedThumbnail;
+    } else if (!thumbnail) {
+      // Fallback to random if no youtube thumb and no generated thumb
+      thumbnail = `https://picsum.photos/400/225?random=${Date.now()}`;
     }
 
     const newCourse: Course = {
@@ -103,11 +132,14 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
     // DB Save
     await saveCourseToSupabase(newCourse);
 
-    // Local Update
+    // Re-fetch to ensure correct order if we cared, but appending is fine for now locally
+    // Ideally, we reload the list, but let's just prepend for feedback
     setCourses(prev => [newCourse, ...prev]);
 
+    // Reset Form
     setNewCourseTitle('');
     setNewVideoUrl('');
+    setGeneratedThumbnail(null);
     setShowAddModal(false);
   };
 
@@ -163,13 +195,18 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
           </div>
         </div>
 
-        <h3 className="font-semibold text-slate-700 mt-4">전체 강의 목록 (학생들에게 보여지는 화면)</h3>
+        <h3 className="font-semibold text-slate-700 mt-4">전체 강의 목록 (인기순 정렬됨)</h3>
         <div className="space-y-3">
           {courses.length === 0 ? (
             <p className="text-slate-400 text-sm">등록된 강의가 없습니다. 학생들을 위해 강의를 올려주세요!</p>
           ) : (
-            courses.map(course => (
-               <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group border border-slate-100 hover:border-indigo-200 transition-colors">
+            courses.map((course, index) => (
+               <div key={course.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg group border border-slate-100 hover:border-indigo-200 transition-colors relative">
+                 {index < 3 && (
+                    <div className="absolute -top-2 -left-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-sm z-10">
+                      <Flame className="w-3 h-3 fill-current" /> HOT
+                    </div>
+                 )}
                  <div className="w-24 h-14 bg-slate-300 rounded overflow-hidden flex-shrink-0 relative cursor-pointer group-hover:ring-2 ring-indigo-200" onClick={() => handlePlayVideo(course)}>
                    <img src={course.thumbnail} alt="" className="w-full h-full object-cover" />
                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
@@ -178,7 +215,14 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                  </div>
                  <div className="flex-1 min-w-0">
                    <div className="font-bold text-sm truncate text-slate-800 cursor-pointer hover:text-indigo-600" onClick={() => handlePlayVideo(course)}>{course.title}</div>
-                   <div className="text-xs text-slate-500">{course.subject} • {course.duration}</div>
+                   <div className="text-xs text-slate-500 flex items-center gap-2">
+                      <span>{course.subject} • {course.duration}</span>
+                      {course.completionCount !== undefined && course.completionCount > 0 && (
+                          <span className="flex items-center text-indigo-500 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
+                              <Users className="w-3 h-3 mr-1" /> {course.completionCount}명
+                          </span>
+                      )}
+                   </div>
                  </div>
                  {/* Teacher Only Delete Button */}
                  <button 
@@ -193,10 +237,10 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
           )}
         </div>
         
-        {/* Add Modal Reuse */}
+        {/* Add Modal */}
         {showAddModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
                <h3 className="font-bold text-lg mb-4 text-slate-800">새 강의 업로드</h3>
                <div className="space-y-4">
                 <div>
@@ -208,6 +252,52 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                         placeholder="강의 제목"
                     />
                 </div>
+                
+                <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">썸네일 이미지</label>
+                    <div className="space-y-2">
+                      {generatedThumbnail ? (
+                        <div className="relative rounded-xl overflow-hidden aspect-video bg-slate-100 border border-indigo-200">
+                           <img src={generatedThumbnail} alt="Generated Thumbnail" className="w-full h-full object-cover" />
+                           <button 
+                             onClick={() => setGeneratedThumbnail(null)} 
+                             className="absolute top-2 right-2 bg-white/80 p-1 rounded-full text-slate-600 hover:text-red-500"
+                           >
+                             <Trash2 className="w-4 h-4" />
+                           </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center rounded-xl border-2 border-dashed border-slate-200 aspect-video bg-slate-50 text-slate-400">
+                          <div className="text-center">
+                            <ImageIcon className="w-8 h-8 mx-auto mb-1 opacity-50" />
+                            <span className="text-xs">이미지 미리보기</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <button 
+                        onClick={handleGenerateThumbnail}
+                        disabled={!newCourseTitle || isGeneratingThumbnail}
+                        className={`w-full py-2 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                          !newCourseTitle 
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                            : 'bg-gradient-to-r from-pink-500 to-orange-500 text-white hover:opacity-90 shadow-md'
+                        }`}
+                      >
+                        {isGeneratingThumbnail ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" /> 생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" /> AI 썸네일 생성
+                          </>
+                        )}
+                      </button>
+                      {!newCourseTitle && <p className="text-[10px] text-slate-400 text-center">제목을 입력하면 AI 이미지를 생성할 수 있습니다.</p>}
+                    </div>
+                </div>
+
                 <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">유튜브 링크</label>
                     <input 
@@ -227,7 +317,7 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                     ))}
                   </select>
                   <div className="flex gap-2 pt-2">
-                    <button onClick={() => setShowAddModal(false)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">취소</button>
+                    <button onClick={() => { setShowAddModal(false); setGeneratedThumbnail(null); }} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">취소</button>
                     <button onClick={handleAddCourse} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold">업로드</button>
                   </div>
                </div>
@@ -287,47 +377,69 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredCourses.map((course) => (
-            <div 
-              key={course.id} 
-              className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
-            >
-              <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
-                <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
-                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <div className="bg-white/20 backdrop-blur-sm p-3 rounded-full group-hover:scale-110 transition-transform">
-                    <ExternalLink className="w-8 h-8 text-white drop-shadow-md" />
+          {filteredCourses.map((course) => {
+            // Check if this course is in the top 3 of the ORIGINAL sorted list (before filter)
+            // But for UI consistency, checking against the current filter is weird.
+            // Let's assume 'courses' is the full sorted list.
+            const isPopular = courses.findIndex(c => c.id === course.id) < 3 && courses.length > 0;
+
+            return (
+              <div 
+                key={course.id} 
+                className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
+              >
+                <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
+                  <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                  
+                  {/* HOT Badge */}
+                  {isPopular && (
+                    <div className="absolute top-2 left-2 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-lg z-10 animate-pulse">
+                        <Flame className="w-3 h-3 fill-current" /> HOT
+                    </div>
+                  )}
+
+                  <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <div className="bg-white/20 backdrop-blur-sm p-3 rounded-full group-hover:scale-110 transition-transform">
+                      <ExternalLink className="w-8 h-8 text-white drop-shadow-md" />
+                    </div>
+                  </div>
+                  <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-md">
+                    {course.duration}
+                  </span>
+                </div>
+                
+                <div className="p-4">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-bold text-indigo-600 mb-1 block">{course.subject}</span>
+                      <h3 
+                          className="font-bold text-slate-800 leading-tight text-sm truncate cursor-pointer hover:text-indigo-600"
+                          onClick={() => handlePlayVideo(course)}
+                      >
+                          {course.title}
+                      </h3>
+                      <div className="text-xs text-slate-400 flex items-center gap-2 mt-1">
+                        {course.completionCount !== undefined && course.completionCount > 0 && (
+                            <span className="flex items-center text-indigo-500 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
+                                <Users className="w-3 h-3 mr-1" /> {course.completionCount}명
+                            </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button 
+                        onClick={(e) => toggleComplete(e, course.id)}
+                        className={`p-1 rounded-full transition-colors ${course.completed ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                        title={course.completed ? "학습 완료 취소" : "학습 완료 체크"}
+                      >
+                        <CheckCircle className="w-6 h-6 fill-current" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-md">
-                  {course.duration}
-                </span>
               </div>
-              
-              <div className="p-4">
-                <div className="flex justify-between items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-bold text-indigo-600 mb-1 block">{course.subject}</span>
-                    <h3 
-                        className="font-bold text-slate-800 leading-tight text-sm truncate cursor-pointer hover:text-indigo-600"
-                        onClick={() => handlePlayVideo(course)}
-                    >
-                        {course.title}
-                    </h3>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button 
-                      onClick={(e) => toggleComplete(e, course.id)}
-                      className={`p-1 rounded-full transition-colors ${course.completed ? 'text-green-500 bg-green-50' : 'text-slate-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
-                      title={course.completed ? "학습 완료 취소" : "학습 완료 체크"}
-                    >
-                      <CheckCircle className="w-6 h-6 fill-current" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

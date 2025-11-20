@@ -63,14 +63,18 @@ const loginUserLocal = (id: string, name: string, role: UserRole): User => {
 // --- Micro Learning ---
 
 export const fetchCourses = async (): Promise<Course[]> => {
+  let courses: Course[] = [];
+  let counts: Record<string, number> = {};
+
   if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+    // 1. Get Courses
+    const { data: coursesData, error } = await supabase
       .from('courses')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select('*');
       
     if (error) return [];
-    return data.map((c: any) => ({
+    
+    courses = coursesData.map((c: any) => ({
       id: c.id,
       title: c.title,
       subject: c.subject,
@@ -79,10 +83,52 @@ export const fetchCourses = async (): Promise<Course[]> => {
       videoUrl: c.video_url,
       completed: false
     }));
+
+    // 2. Get Usage Counts to sort by popularity
+    const { data: progressData } = await supabase
+      .from('course_progress')
+      .select('course_id');
+    
+    if (progressData) {
+      progressData.forEach((p: any) => {
+        counts[p.course_id] = (counts[p.course_id] || 0) + 1;
+      });
+    }
   } else {
+    // Local Storage
     const json = localStorage.getItem('SHARED_CONTENT_micro_learning');
-    return json ? JSON.parse(json) : [];
+    courses = json ? JSON.parse(json) : [];
+
+    // Aggregate counts from all users in local storage
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`${STORAGE_PREFIX}progress_`)) {
+        const userProgress: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+        userProgress.forEach(cid => {
+          counts[cid] = (counts[cid] || 0) + 1;
+        });
+      }
+    }
   }
+
+  // Attach counts to courses
+  courses = courses.map(c => ({
+    ...c,
+    completionCount: counts[c.id] || 0
+  }));
+
+  // Sort by count (descending)
+  courses.sort((a, b) => {
+    const countA = a.completionCount || 0;
+    const countB = b.completionCount || 0;
+    if (countB !== countA) {
+      return countB - countA; // More popular first
+    }
+    // Tie-break with ID or Title
+    return b.id.localeCompare(a.id);
+  });
+
+  return courses;
 };
 
 export const fetchUserProgress = async (userId: string): Promise<string[]> => {
@@ -115,7 +161,10 @@ export const saveCourseToSupabase = async (course: Course) => {
       }]);
     if (error) console.error("Save Course Error", error);
   } else {
-    const courses = await fetchCourses();
+    // When saving locally, we need to refetch because fetchCourses does sorting now
+    // But simple append is fine for immediate feedback, sort happens on reload
+    const json = localStorage.getItem('SHARED_CONTENT_micro_learning');
+    const courses = json ? JSON.parse(json) : [];
     const updated = [course, ...courses];
     localStorage.setItem('SHARED_CONTENT_micro_learning', JSON.stringify(updated));
   }
@@ -125,8 +174,9 @@ export const deleteCourseFromSupabase = async (courseId: string) => {
   if (isSupabaseConfigured) {
     await supabase.from('courses').delete().eq('id', courseId);
   } else {
-    const courses = await fetchCourses();
-    const updated = courses.filter(c => c.id !== courseId);
+    const json = localStorage.getItem('SHARED_CONTENT_micro_learning');
+    const courses = json ? JSON.parse(json) : [];
+    const updated = courses.filter((c: any) => c.id !== courseId);
     localStorage.setItem('SHARED_CONTENT_micro_learning', JSON.stringify(updated));
   }
 };
@@ -205,22 +255,10 @@ export const saveChallengeToSupabase = async (userId: string, challenge: Challen
 };
 
 export const deleteChallengeFromSupabase = async (challengeId: string) => {
-  // We need userId to delete from local storage properly, but since interface only has ID, 
-  // we might need to assume the caller handles state update or we scan.
-  // For LocalStorage simplicity, we assume the component refreshes its state and overwrites,
-  // but to be safe let's just allow the UI to handle the state update and we rely on `saveChallenge` logic usually.
-  // Actually, we need a way to delete.
-  // For this mock, we'll cheat a bit: the UI updates state and effectively "saves" the new list?
-  // No, the UI calls this function.
-  
   if (isSupabaseConfigured) {
     await supabase.from('challenges').delete().eq('id', challengeId);
   } else {
-    // Local storage deletion is tricky without UserID.
-    // We will rely on the fact that in Local Mode, we iterate all keys or just rely on the UI being consistent.
-    // Wait, the GodSaeng component passes ID.
-    // We need to find which user owns this challenge.
-    // For simplicity in Local Mode, we will traverse `school2026_challenges_*`.
+    // Local Mode: Scan and delete
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key && key.startsWith(`${STORAGE_PREFIX}challenges_`)) {

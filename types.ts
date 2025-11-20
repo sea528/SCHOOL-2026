@@ -18,6 +18,7 @@ export interface Course {
   completed: boolean;
   subject: string;
   videoUrl?: string; // YouTube embed URL
+  completionCount?: number;
 }
 
 export interface Challenge {

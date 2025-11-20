@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge, UserRole } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2 } from 'lucide-react';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2, RefreshCw } from 'lucide-react';
 import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
 import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats } from '../services/storageService';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
 interface GodSaengProps {
   userId: string;
@@ -29,21 +29,22 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [newIcon, setNewIcon] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
 
+  const loadData = async () => {
+    setIsLoading(true);
+    
+    if (role === UserRole.TEACHER) {
+      // Teacher Logic: Load aggregated stats from DB
+      const stats = await getAllStudentChallengeStats();
+      setStudentStats(stats);
+    } else {
+      // Student Logic: Load personal data from DB
+      const loadedData = await fetchChallenges(userId);
+      setChallenges(loadedData);
+    }
+    setIsLoading(false);
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      
-      if (role === UserRole.TEACHER) {
-        // Teacher Logic: Load aggregated stats from DB
-        const stats = await getAllStudentChallengeStats();
-        setStudentStats(stats);
-      } else {
-        // Student Logic: Load personal data from DB
-        const loadedData = await fetchChallenges(userId);
-        setChallenges(loadedData);
-      }
-      setIsLoading(false);
-    };
     loadData();
   }, [userId, role]);
 
@@ -54,6 +55,10 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       setAiSlogan("새로운 챌린지를 시작해보세요!");
     }
   }, [challenges, role]);
+
+  const handleRefreshStats = () => {
+    loadData();
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -145,45 +150,70 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   if (role === UserRole.TEACHER) {
     return (
       <div className="space-y-8 pb-20">
-        <header className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-2">
-            <BarChart2 className="w-6 h-6" />
+        <header className="flex flex-col items-center justify-center space-y-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 mb-1">
+            <BarChart2 className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">갓생 챌린지 리더보드</h1>
-          <p className="text-slate-500 text-sm">학생들의 챌린지 참여도와 누적 인증 횟수를 비교합니다.</p>
+          <p className="text-slate-500 text-sm text-center">
+            학생들의 챌린지 참여 현황을 한눈에 확인하세요.
+          </p>
+          <button 
+            onClick={handleRefreshStats}
+            className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-indigo-600 bg-slate-50 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> 데이터 새로고침
+          </button>
         </header>
 
         {studentStats.length === 0 ? (
-           <div className="text-center py-12 bg-white rounded-2xl border-dashed border-2 border-slate-200">
-              <p className="text-slate-400 font-bold">아직 챌린지에 참여한 학생이 없습니다.</p>
-              <p className="text-xs text-slate-400 mt-1">학생들이 챌린지를 시작하면 그래프가 나타납니다.</p>
+           <div className="text-center py-16 bg-white rounded-2xl border-dashed border-2 border-slate-200">
+              <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Zap className="w-8 h-8 text-slate-300" />
+              </div>
+              <p className="text-slate-500 font-bold">아직 챌린지에 참여한 학생이 없습니다.</p>
+              <p className="text-xs text-slate-400 mt-1">학생들이 챌린지를 시작하면 이곳에 그래프가 나타납니다.</p>
            </div>
         ) : (
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <div className="h-80 w-full">
+            <h2 className="text-lg font-bold text-slate-800 mb-6 pl-2 border-l-4 border-indigo-500">
+              학생별 누적 달성일 비교
+            </h2>
+            <div className="h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={studentStats} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <BarChart 
+                  data={studentStats} 
+                  layout="vertical" 
+                  margin={{ top: 5, right: 30, left: 40, bottom: 5 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" hide />
+                  <XAxis type="number" tick={{ fontSize: 12, fill: '#94a3b8' }} />
                   <YAxis 
                     dataKey="name" 
                     type="category" 
-                    width={80} 
-                    tick={{ fontSize: 12, fill: '#64748b', fontWeight: 'bold' }} 
+                    width={100} 
+                    tick={{ fontSize: 12, fill: '#475569', fontWeight: '600' }} 
                     axisLine={false}
                     tickLine={false}
                   />
                   <Tooltip 
                     cursor={{ fill: '#f8fafc' }}
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                    formatter={(value: number) => [`${value}일`, '총 인증일']}
                   />
-                  <Bar dataKey="totalDays" name="누적 인증일수" radius={[0, 4, 4, 0]} barSize={20}>
+                  <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                  <Bar dataKey="totalDays" name="총 인증 달성일" radius={[0, 6, 6, 0]} barSize={24}>
                     {studentStats.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={index < 3 ? '#4f46e5' : '#94a3b8'} />
+                      <Cell key={`cell-${index}`} fill={index < 3 ? '#6366f1' : '#cbd5e1'} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+            <div className="mt-4 text-center">
+              <span className="text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full">
+                📊 상위 3명의 학생은 보라색으로 표시됩니다.
+              </span>
             </div>
           </div>
         )}

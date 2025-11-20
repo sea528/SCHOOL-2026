@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 const getAiClient = () => {
@@ -90,5 +91,57 @@ export const recommendChallenge = async (): Promise<{title: string, description:
   } catch (e) {
     console.error("AI Recommend Error", e);
     return null;
+  }
+};
+
+export const generateThumbnail = async (topic: string): Promise<string | null> => {
+  const ai = getAiClient();
+  if (!ai) return null;
+
+  try {
+    // Using Imagen 3 model as per guidelines for high quality image generation
+    const response = await ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: `A high-quality, visually appealing, modern, and minimalist educational illustration for a course thumbnail about: "${topic}". The style should be suitable for a high school education platform. Use bright and encouraging colors. 16:9 aspect ratio.`,
+      config: {
+        numberOfImages: 1,
+        aspectRatio: '16:9',
+        outputMimeType: 'image/jpeg'
+      }
+    });
+
+    const base64Image = response.generatedImages?.[0]?.image?.imageBytes;
+    if (base64Image) {
+      return `data:image/jpeg;base64,${base64Image}`;
+    }
+    return null;
+  } catch (e) {
+    console.error("Thumbnail Generation Error", e);
+    return null;
+  }
+};
+
+export const summarizeStudentReflection = async (reflection: string): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return "AI 연결 불가";
+
+  try {
+    const prompt = `
+      다음은 학생의 학교생활 성장 회고록입니다.
+      선생님이 학생의 성장을 한눈에 파악할 수 있도록, 
+      이 학생이 겪은 가장 큰 변화나 성취, 혹은 느낌점을 한 문장으로 명확하고 간결하게 요약해주세요.
+      
+      학생의 텍스트: "${reflection}"
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+
+    return response.text || "요약할 수 없습니다.";
+  } catch (error) {
+    console.error("Summarize Error", error);
+    return "AI 요약 실패";
   }
 };
