@@ -1,129 +1,361 @@
 
-// Helper to simulate database persistence using LocalStorage
-// Keys are prefixed with the User ID to ensure data separation
+import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { User, Course, Challenge, UserRole } from '../types';
 
-const PREFIX = 'school2026_';
+const STORAGE_PREFIX = 'school2026_';
 
-export const loadUserData = <T>(userId: string, key: string, defaultData: T): T => {
-  if (!userId) return defaultData;
-  try {
-    const item = localStorage.getItem(`${PREFIX}${userId}_${key}`);
-    return item ? JSON.parse(item) : defaultData;
-  } catch (error) {
-    console.error("Error loading data", error);
-    return defaultData;
+// --- User Management ---
+
+export const loginUserToSupabase = async (id: string, name: string, role: UserRole): Promise<User | null> => {
+  if (isSupabaseConfigured) {
+    try {
+      // 1. Check if user exists
+      const { data: existingUser, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (existingUser) {
+        await supabase.from('users').update({ name, role }).eq('id', id);
+        return { id: existingUser.id, name: existingUser.name, role: existingUser.role as UserRole };
+      }
+
+      // 2. If not, create user
+      const { data: newUser, error: insertError } = await supabase
+        .from('users')
+        .insert([{ id, name, role }])
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      
+      return { id: newUser.id, name: newUser.name, role: newUser.role as UserRole };
+    } catch (e) {
+      console.error("Supabase Login Error:", e);
+      // Fallback to local if DB fails unexpectedly
+      return loginUserLocal(id, name, role);
+    }
+  } else {
+    return loginUserLocal(id, name, role);
   }
 };
 
-export const saveUserData = <T>(userId: string, key: string, data: T): void => {
-  if (!userId) return;
-  try {
-    localStorage.setItem(`${PREFIX}${userId}_${key}`, JSON.stringify(data));
-  } catch (error) {
-    console.error("Error saving data", error);
-  }
-};
-
-// Scan localStorage to find all student challenge data for the teacher dashboard
-export const getAllStudentChallengeStats = () => {
-  const stats: { name: string; totalDays: number; challengeCount: number }[] = [];
+const loginUserLocal = (id: string, name: string, role: UserRole): User => {
+  console.log("Using Local Storage for Login");
+  const userKey = `${STORAGE_PREFIX}user_${id}`;
+  const newUser: User = { id, name, role };
+  localStorage.setItem(userKey, JSON.stringify(newUser));
   
-  // Iterate through all localStorage keys
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    // Key format: school2026_{studentId}_god_saeng
-    if (key && key.startsWith(PREFIX) && key.endsWith('_god_saeng')) {
-      try {
-        // Extract userId from key
-        // prefix length is 11 (school2026_), suffix length is 9 (_god_saeng)
-        const userId = key.substring(PREFIX.length, key.length - 9);
-        
-        const data = JSON.parse(localStorage.getItem(key) || '[]');
-        
-        if (Array.isArray(data)) {
-          // Calculate total completed days across all challenges for this student
-          const totalDays = data.reduce((acc: number, cur: any) => acc + (cur.daysCompleted || 0), 0);
-          
-          // Only include if they have at least started something or created a challenge
-          if (data.length > 0) {
-            stats.push({
-              name: userId, // Using ID as name since we don't store names separately in this simple DB
-              totalDays: totalDays,
-              challengeCount: data.length
-            });
-          }
+  // Update global user list for teacher view aggregation
+  const usersListKey = `${STORAGE_PREFIX}all_users`;
+  const existingUsersStr = localStorage.getItem(usersListKey);
+  let allUsers: User[] = existingUsersStr ? JSON.parse(existingUsersStr) : [];
+  
+  if (!allUsers.find(u => u.id === id)) {
+    allUsers.push(newUser);
+    localStorage.setItem(usersListKey, JSON.stringify(allUsers));
+  }
+  
+  return newUser;
+};
+
+// --- Micro Learning ---
+
+export const fetchCourses = async (): Promise<Course[]> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('courses')
+      .select('*')
+      .order('created_at', { ascending: false });
+      
+    if (error) return [];
+    return data.map((c: any) => ({
+      id: c.id,
+      title: c.title,
+      subject: c.subject,
+      duration: c.duration,
+      thumbnail: c.thumbnail,
+      videoUrl: c.video_url,
+      completed: false
+    }));
+  } else {
+    const json = localStorage.getItem('SHARED_CONTENT_micro_learning');
+    return json ? JSON.parse(json) : [];
+  }
+};
+
+export const fetchUserProgress = async (userId: string): Promise<string[]> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('course_progress')
+      .select('course_id')
+      .eq('user_id', userId)
+      .eq('completed', true);
+
+    if (error) return [];
+    return data.map((item: any) => item.course_id);
+  } else {
+    const json = localStorage.getItem(`${STORAGE_PREFIX}progress_${userId}`);
+    return json ? JSON.parse(json) : [];
+  }
+};
+
+export const saveCourseToSupabase = async (course: Course) => {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase
+      .from('courses')
+      .insert([{
+        id: course.id,
+        title: course.title,
+        subject: course.subject,
+        duration: course.duration,
+        thumbnail: course.thumbnail,
+        video_url: course.videoUrl
+      }]);
+    if (error) console.error("Save Course Error", error);
+  } else {
+    const courses = await fetchCourses();
+    const updated = [course, ...courses];
+    localStorage.setItem('SHARED_CONTENT_micro_learning', JSON.stringify(updated));
+  }
+};
+
+export const deleteCourseFromSupabase = async (courseId: string) => {
+  if (isSupabaseConfigured) {
+    await supabase.from('courses').delete().eq('id', courseId);
+  } else {
+    const courses = await fetchCourses();
+    const updated = courses.filter(c => c.id !== courseId);
+    localStorage.setItem('SHARED_CONTENT_micro_learning', JSON.stringify(updated));
+  }
+};
+
+export const updateUserProgress = async (userId: string, courseId: string, completed: boolean) => {
+  if (isSupabaseConfigured) {
+    if (completed) {
+      await supabase.from('course_progress').insert([{ user_id: userId, course_id: courseId, completed: true }]);
+    } else {
+      await supabase.from('course_progress').delete().eq('user_id', userId).eq('course_id', courseId);
+    }
+  } else {
+    const progress = await fetchUserProgress(userId);
+    let updated = [...progress];
+    if (completed) {
+      if (!updated.includes(courseId)) updated.push(courseId);
+    } else {
+      updated = updated.filter(id => id !== courseId);
+    }
+    localStorage.setItem(`${STORAGE_PREFIX}progress_${userId}`, JSON.stringify(updated));
+  }
+};
+
+// --- God Saeng ---
+
+export const fetchChallenges = async (userId: string): Promise<Challenge[]> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('challenges')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error) return [];
+
+    return data.map((c: any) => ({
+      id: c.id,
+      title: c.title,
+      description: c.description,
+      daysTotal: c.days_total,
+      daysCompleted: c.days_completed,
+      badgeIcon: c.badge_icon,
+      color: c.color
+    }));
+  } else {
+    const json = localStorage.getItem(`${STORAGE_PREFIX}challenges_${userId}`);
+    return json ? JSON.parse(json) : [];
+  }
+};
+
+export const saveChallengeToSupabase = async (userId: string, challenge: Challenge) => {
+  if (isSupabaseConfigured) {
+    const { error } = await supabase
+      .from('challenges')
+      .upsert([{
+        id: challenge.id,
+        user_id: userId,
+        title: challenge.title,
+        description: challenge.description,
+        days_total: challenge.daysTotal,
+        days_completed: challenge.daysCompleted,
+        badge_icon: challenge.badgeIcon,
+        color: challenge.color
+      }]);
+    if (error) console.error("Save Challenge Error", error);
+  } else {
+    const challenges = await fetchChallenges(userId);
+    const index = challenges.findIndex(c => c.id === challenge.id);
+    let updated;
+    if (index >= 0) {
+      updated = challenges.map(c => c.id === challenge.id ? challenge : c);
+    } else {
+      updated = [...challenges, challenge];
+    }
+    localStorage.setItem(`${STORAGE_PREFIX}challenges_${userId}`, JSON.stringify(updated));
+  }
+};
+
+export const deleteChallengeFromSupabase = async (challengeId: string) => {
+  // We need userId to delete from local storage properly, but since interface only has ID, 
+  // we might need to assume the caller handles state update or we scan.
+  // For LocalStorage simplicity, we assume the component refreshes its state and overwrites,
+  // but to be safe let's just allow the UI to handle the state update and we rely on `saveChallenge` logic usually.
+  // Actually, we need a way to delete.
+  // For this mock, we'll cheat a bit: the UI updates state and effectively "saves" the new list?
+  // No, the UI calls this function.
+  
+  if (isSupabaseConfigured) {
+    await supabase.from('challenges').delete().eq('id', challengeId);
+  } else {
+    // Local storage deletion is tricky without UserID.
+    // We will rely on the fact that in Local Mode, we iterate all keys or just rely on the UI being consistent.
+    // Wait, the GodSaeng component passes ID.
+    // We need to find which user owns this challenge.
+    // For simplicity in Local Mode, we will traverse `school2026_challenges_*`.
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`${STORAGE_PREFIX}challenges_`)) {
+        const list: Challenge[] = JSON.parse(localStorage.getItem(key) || '[]');
+        if (list.find(c => c.id === challengeId)) {
+          const updated = list.filter(c => c.id !== challengeId);
+          localStorage.setItem(key, JSON.stringify(updated));
+          break;
         }
-      } catch (e) {
-        console.error("Error parsing student data", e);
       }
     }
   }
-  
-  // Sort by effort (total days) descending
-  return stats.sort((a, b) => b.totalDays - a.totalDays);
 };
 
-// Scan localStorage to gather Course Counts and Reflections for Teacher Ditto View
-export const getAllStudentGrowthData = () => {
-  const studentMap = new Map<string, { courseCount: number; reflection: string }>();
+// --- Ditto (Reflection) ---
 
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key?.startsWith(PREFIX)) continue;
-
-    let userId = '';
-    
-    // Check for course progress key
-    if (key.endsWith('_course_progress')) {
-       userId = key.substring(PREFIX.length, key.length - 16); // '_course_progress'.length = 16
-    } 
-    // Check for reflection key
-    else if (key.endsWith('_ditto_reflection')) {
-       userId = key.substring(PREFIX.length, key.length - 17); // '_ditto_reflection'.length = 17
-    }
-
-    if (userId && userId !== 'SHARED_CONTENT') {
-        if (!studentMap.has(userId)) {
-            studentMap.set(userId, { courseCount: 0, reflection: '' });
-        }
-        const current = studentMap.get(userId)!;
-
-        if (key.endsWith('_course_progress')) {
-            const progress = JSON.parse(localStorage.getItem(key) || '[]');
-            current.courseCount = Array.isArray(progress) ? progress.length : 0;
-        } else if (key.endsWith('_ditto_reflection')) {
-            const refData = JSON.parse(localStorage.getItem(key) || '{}');
-            current.reflection = refData.reflection || '';
-        }
-    }
+export const fetchReflection = async (userId: string) => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('reflections')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+      
+    if (error || !data) return { reflection: '', feedback: null };
+    return { reflection: data.reflection, feedback: data.feedback };
+  } else {
+    const json = localStorage.getItem(`${STORAGE_PREFIX}reflection_${userId}`);
+    return json ? JSON.parse(json) : { reflection: '', feedback: null };
   }
-
-  return Array.from(studentMap.entries())
-    .map(([id, val]) => ({
-      id,
-      courseCount: val.courseCount,
-      reflection: val.reflection
-    }))
-    .filter(item => item.courseCount > 0 || item.reflection !== '') // Only show active students
-    .sort((a, b) => b.courseCount - a.courseCount); // Sort by course count descending
 };
 
-export const downloadUserDataAsExcel = (userId: string, userName: string, graphData: any[] = []) => {
-  // 1. Load All Data for the user
-  const courses = loadUserData(userId, 'micro_learning', []); // Note: Legacy check, technically should be checking shared + progress for full detail
-  const courseProgress = loadUserData(userId, 'course_progress', []); // Just IDs
-  const challenges = loadUserData(userId, 'god_saeng', []);
-  const reflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: '' });
+export const saveReflectionToSupabase = async (userId: string, reflection: string, feedback: string | null) => {
+  if (isSupabaseConfigured) {
+    await supabase
+      .from('reflections')
+      .upsert([{ user_id: userId, reflection, feedback }]);
+  } else {
+    localStorage.setItem(`${STORAGE_PREFIX}reflection_${userId}`, JSON.stringify({ reflection, feedback }));
+  }
+};
 
-  // 2. Build CSV Content
-  // \uFEFF is the BOM (Byte Order Mark) to force Excel to treat the file as UTF-8
+// --- Teacher Dashboard Aggregations ---
+
+export const getAllStudentChallengeStats = async () => {
+  if (isSupabaseConfigured) {
+    const { data: users } = await supabase.from('users').select('id, name').eq('role', 'STUDENT');
+    const { data: challenges } = await supabase.from('challenges').select('user_id, days_completed');
+    
+    if (!users || !challenges) return [];
+
+    const stats = users.map(user => {
+      const userChallenges = challenges.filter((c: any) => c.user_id === user.id);
+      const totalDays = userChallenges.reduce((acc: number, c: any) => acc + (c.days_completed || 0), 0);
+      return {
+        name: `${user.name} (${user.id})`,
+        totalDays,
+        challengeCount: userChallenges.length
+      };
+    });
+
+    return stats.sort((a, b) => b.totalDays - a.totalDays);
+  } else {
+    // Local Mode Aggregation
+    const stats: any[] = [];
+    const usersKey = `${STORAGE_PREFIX}all_users`;
+    const users: User[] = JSON.parse(localStorage.getItem(usersKey) || '[]');
+    
+    users.filter(u => u.role === UserRole.STUDENT).forEach(user => {
+      const challenges: Challenge[] = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}challenges_${user.id}`) || '[]');
+      const totalDays = challenges.reduce((acc, c) => acc + c.daysCompleted, 0);
+      stats.push({
+        name: `${user.name} (${user.id})`,
+        totalDays,
+        challengeCount: challenges.length
+      });
+    });
+    
+    return stats.sort((a, b) => b.totalDays - a.totalDays);
+  }
+};
+
+export const getAllStudentGrowthData = async () => {
+  if (isSupabaseConfigured) {
+    const { data: users } = await supabase.from('users').select('id, name').eq('role', 'STUDENT');
+    const { data: progress } = await supabase.from('course_progress').select('user_id');
+    const { data: reflections } = await supabase.from('reflections').select('user_id, reflection');
+    
+    if (!users) return [];
+    
+    const result = users.map(user => {
+      const courseCount = progress ? progress.filter((p: any) => p.user_id === user.id).length : 0;
+      const reflectionData = reflections ? reflections.find((r: any) => r.user_id === user.id) : null;
+      
+      return {
+        id: user.name, 
+        courseCount,
+        reflection: reflectionData ? reflectionData.reflection : ''
+      };
+    });
+
+    return result.filter(r => r.courseCount > 0 || r.reflection).sort((a, b) => b.courseCount - a.courseCount);
+  } else {
+    // Local Mode
+    const result: any[] = [];
+    const usersKey = `${STORAGE_PREFIX}all_users`;
+    const users: User[] = JSON.parse(localStorage.getItem(usersKey) || '[]');
+
+    users.filter(u => u.role === UserRole.STUDENT).forEach(user => {
+      const progress = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}progress_${user.id}`) || '[]');
+      const reflectionData = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}reflection_${user.id}`) || '{}');
+      
+      if (progress.length > 0 || reflectionData.reflection) {
+        result.push({
+          id: user.name,
+          courseCount: progress.length,
+          reflection: reflectionData.reflection || ''
+        });
+      }
+    });
+    
+    return result.sort((a, b) => b.courseCount - a.courseCount);
+  }
+};
+
+// --- Excel Export ---
+export const downloadUserDataAsExcel = async (userId: string, userName: string, graphData: any[] = []) => {
+  const courseProgress = await fetchUserProgress(userId);
+  const challenges = await fetchChallenges(userId);
+  const reflectionData = await fetchReflection(userId);
+
   let csvContent = "\uFEFF"; 
-
-  // Header
   csvContent += `[${userName}(${userId})님의 갓생스쿨 생활기록부]\n`;
   csvContent += `생성일시,${new Date().toLocaleString()}\n\n`;
 
-  // Section 1: Graph Data (New)
   csvContent += `[1. 성장 그래프 데이터]\n`;
   csvContent += `시기,점수,과목\n`;
   if (Array.isArray(graphData)) {
@@ -133,12 +365,10 @@ export const downloadUserDataAsExcel = (userId: string, userName: string, graphD
   }
   csvContent += `\n`;
 
-  // Section 2: Micro Learning
   csvContent += `[2. 숏클래스 학습 현황]\n`;
   csvContent += `수강 완료 강의 수,${courseProgress.length}개\n`;
   csvContent += `\n`;
 
-  // Section 3: God Saeng Challenges
   csvContent += `[3. 갓생 챌린지 기록]\n`;
   csvContent += `챌린지명,목표일수,달성일수,진행률,상태\n`;
   if (Array.isArray(challenges)) {
@@ -151,16 +381,13 @@ export const downloadUserDataAsExcel = (userId: string, userName: string, graphD
   }
   csvContent += `\n`;
 
-  // Section 4: Growth Story
   csvContent += `[4. 성장 에세이 & AI 피드백]\n`;
-  
   const reflection = reflectionData.reflection ? `"${reflectionData.reflection.replace(/"/g, '""').replace(/\n/g, ' ')}"` : "기록 없음";
   const feedback = reflectionData.feedback ? `"${reflectionData.feedback.replace(/"/g, '""').replace(/\n/g, ' ')}"` : "피드백 없음";
 
   csvContent += `나의 회고,${reflection}\n`;
   csvContent += `AI 선생님 피드백,${feedback}\n`;
 
-  // 3. Create Download Link
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

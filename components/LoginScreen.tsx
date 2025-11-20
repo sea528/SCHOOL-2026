@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
-import { School, ArrowRight } from 'lucide-react';
+import { School, ArrowRight, Loader2 } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { loginUserToSupabase } from '../services/storageService';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
@@ -9,18 +11,24 @@ interface LoginScreenProps {
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [name, setName] = useState('');
   const [studentId, setStudentId] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && studentId.trim()) {
-      // Special check for teacher login simulation
+      setIsLoggingIn(true);
+      
+      // Determine role based on ID convention
       const role = studentId === 'admin' || studentId === 'teacher' ? UserRole.TEACHER : UserRole.STUDENT;
       
-      onLogin({
-        id: studentId,
-        name: name,
-        role: role
-      });
+      // Login/Signup via Supabase
+      const user = await loginUserToSupabase(studentId, name, role);
+      
+      setIsLoggingIn(false);
+      
+      if (user) {
+        onLogin(user);
+      }
     }
   };
 
@@ -47,6 +55,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 placeholder="홍길동"
                 className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
                 required
+                disabled={isLoggingIn}
               />
             </div>
             <div>
@@ -58,19 +67,30 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 placeholder="20260101"
                 className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
                 required
+                disabled={isLoggingIn}
               />
             </div>
           </div>
 
           <button
             type="submit"
-            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transform hover:scale-[1.02] transition-all flex items-center justify-center gap-2 font-jua"
+            disabled={isLoggingIn}
+            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transform hover:scale-[1.02] transition-all flex items-center justify-center gap-2 font-jua disabled:bg-slate-400 disabled:transform-none"
           >
-            등교하기 <ArrowRight className="w-5 h-5" />
+            {isLoggingIn ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" /> 로그인 중...
+              </>
+            ) : (
+              <>
+                등교하기 <ArrowRight className="w-5 h-5" />
+              </>
+            )}
           </button>
           
           <p className="text-center text-xs text-slate-400">
-            * 선생님은 ID에 'teacher'를 입력하세요.
+            * 처음 로그인하면 자동으로 계정이 생성됩니다.<br/>
+            * 교사용 ID: teacher
           </p>
         </form>
       </div>

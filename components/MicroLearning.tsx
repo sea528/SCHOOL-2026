@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Course, UserRole } from '../types';
-import { CheckCircle, PlayCircle, BarChart2, Plus, X, Trash2, ExternalLink } from 'lucide-react';
-import { loadUserData, saveUserData } from '../services/storageService';
+import { CheckCircle, PlayCircle, BarChart2, Plus, Trash2, ExternalLink, Loader2 } from 'lucide-react';
+import { fetchCourses, fetchUserProgress, saveCourseToSupabase, deleteCourseFromSupabase, updateUserProgress } from '../services/storageService';
 
 interface MicroLearningProps {
   role: UserRole;
@@ -10,88 +10,61 @@ interface MicroLearningProps {
   userName: string;
 }
 
-// Key for shared content accessible by all users
-const SHARED_USER_KEY = 'SHARED_CONTENT';
-
 const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName }) => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [activeFilter, setActiveFilter] = useState<string>('All');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Form state for new course
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [newCourseSubject, setNewCourseSubject] = useState('수학');
   const [newVideoUrl, setNewVideoUrl] = useState('');
 
-  // 1. Load Data: Fetch Shared Courses AND Personal Progress
+  // Load Data
   useEffect(() => {
-    // Load the master list of courses (managed by teachers, visible to all)
-    const sharedCourses = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
-    
-    // Load the user's personal progress (list of completed course IDs)
-    const myCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
+    const loadData = async () => {
+      setIsLoading(true);
+      // 1. Fetch shared courses
+      const sharedCourses = await fetchCourses();
+      // 2. Fetch user progress
+      const myCompletedIds = await fetchUserProgress(userId);
 
-    // Merge them to create the view model
-    // Filter out any courses that might have been deleted from shared but exist in progress (optional, but good for cleanup)
-    const mergedCourses = sharedCourses.map(course => ({
-      ...course,
-      completed: myCompletedIds.includes(course.id)
-    }));
+      // 3. Merge
+      const mergedCourses = sharedCourses.map(course => ({
+        ...course,
+        completed: myCompletedIds.includes(course.id)
+      }));
 
-    setCourses(mergedCourses);
+      setCourses(mergedCourses);
+      setIsLoading(false);
+    };
+
+    loadData();
   }, [userId]);
 
-  // 2. Helper to update shared courses (Teacher Only)
-  const updateSharedCourses = (newCourseList: Course[]) => {
-    saveUserData(SHARED_USER_KEY, 'courses', newCourseList);
-    // We also need to update local state to reflect changes immediately
-    // Preserve current completion status for the UI
-    const myCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
-    const merged = newCourseList.map(c => ({
-      ...c,
-      completed: myCompletedIds.includes(c.id)
-    }));
-    setCourses(merged);
-  };
-
-  // 3. Helper to update personal progress (Student/Teacher)
-  const updatePersonalProgress = (courseId: string, isComplete: boolean) => {
-    const currentCompletedIds = loadUserData<string[]>(userId, 'course_progress', []);
-    let newCompletedIds;
-    
-    if (isComplete) {
-      newCompletedIds = [...new Set([...currentCompletedIds, courseId])];
-    } else {
-      newCompletedIds = currentCompletedIds.filter(id => id !== courseId);
-    }
-    
-    saveUserData(userId, 'course_progress', newCompletedIds);
-    
-    // Update local UI state
-    setCourses(prev => prev.map(c => c.id === courseId ? { ...c, completed: isComplete } : c));
-  };
-
-
-  const toggleComplete = (e: React.MouseEvent, id: string) => {
+  const toggleComplete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    // Find current status
     const course = courses.find(c => c.id === id);
     if (course) {
-      updatePersonalProgress(id, !course.completed);
+      // Optimistic Update
+      const newStatus = !course.completed;
+      setCourses(prev => prev.map(c => c.id === id ? { ...c, completed: newStatus } : c));
+      
+      // DB Update
+      await updateUserProgress(userId, id, newStatus);
     }
   };
 
-  const handleDeleteCourse = (e: React.MouseEvent, id: string) => {
+  const handleDeleteCourse = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault(); 
     
-    // Strict check: Only teachers can delete
     if (role !== UserRole.TEACHER) return;
 
     if (window.confirm('정말 이 강의를 삭제하시겠습니까? 모든 학생들의 목록에서 사라집니다.')) {
-      const currentShared = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
-      const updatedShared = currentShared.filter(c => c.id !== id);
-      updateSharedCourses(updatedShared);
+      await deleteCourseFromSupabase(id);
+      setCourses(prev => prev.filter(c => c.id !== id));
     }
   };
 
@@ -101,21 +74,19 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
     return (match && match[2].length === 11) ? match[2] : null;
   };
 
-  const handleAddCourse = () => {
+  const handleAddCourse = async () => {
     if (!newCourseTitle.trim()) return;
     
     let thumbnail = `https://picsum.photos/400/225?random=${Date.now()}`;
     let videoUrl = '';
     
-    // Process YouTube URL if provided
     if (newVideoUrl.trim()) {
       const videoId = getYouTubeId(newVideoUrl);
       if (videoId) {
         thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
-        // Save as Embed URL internally for consistency, but we will convert it when playing
         videoUrl = `https://www.youtube.com/embed/${videoId}`;
       } else {
-        videoUrl = newVideoUrl; // Keep original if regex fails
+        videoUrl = newVideoUrl;
       }
     }
 
@@ -123,15 +94,17 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       id: Date.now().toString(),
       title: newCourseTitle,
       subject: newCourseSubject,
-      duration: '05:00', // Default duration
+      duration: '05:00',
       thumbnail: thumbnail,
       completed: false,
       videoUrl: videoUrl
     };
 
-    // Load current shared list and append
-    const currentShared = loadUserData<Course[]>(SHARED_USER_KEY, 'courses', []);
-    updateSharedCourses([newCourse, ...currentShared]);
+    // DB Save
+    await saveCourseToSupabase(newCourse);
+
+    // Local Update
+    setCourses(prev => [newCourse, ...prev]);
 
     setNewCourseTitle('');
     setNewVideoUrl('');
@@ -143,17 +116,11 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
       alert("재생할 수 있는 동영상 링크가 없습니다.");
       return;
     }
-
-    // Logic to open in native app/external tab
     let targetUrl = course.videoUrl;
-    
-    // If it's a YouTube Embed URL, convert to Watch URL for better App deep linking
     const videoId = getYouTubeId(course.videoUrl);
     if (videoId) {
       targetUrl = `https://www.youtube.com/watch?v=${videoId}`;
     }
-
-    // Open in new tab (triggers App on mobile, New Tab on Desktop)
     window.open(targetUrl, '_blank');
   };
 
@@ -164,6 +131,10 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
   const progress = courses.length > 0 
     ? Math.round((courses.filter(c => c.completed).length / courses.length) * 100) 
     : 0;
+
+  if (isLoading) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600 w-8 h-8" /></div>;
+  }
 
   if (role === UserRole.TEACHER) {
     return (
@@ -321,7 +292,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
               key={course.id} 
               className={`group relative bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 transition-all hover:shadow-md ${course.completed ? 'opacity-90' : ''}`}
             >
-              {/* Thumbnail Area - Triggers External Link */}
               <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => handlePlayVideo(course)}>
                 <img src={course.thumbnail} alt={course.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
                 <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -334,7 +304,6 @@ const MicroLearning: React.FC<MicroLearningProps> = ({ role, userId, userName })
                 </span>
               </div>
               
-              {/* Content Area */}
               <div className="p-4">
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex-1 min-w-0">

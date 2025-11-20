@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Challenge, UserRole } from '../types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon } from 'lucide-react';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon, Loader2 } from 'lucide-react';
 import { generateFeedback } from '../services/geminiService';
-import { loadUserData, saveUserData, downloadUserDataAsExcel, getAllStudentGrowthData } from '../services/storageService';
+import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, downloadUserDataAsExcel, getAllStudentGrowthData } from '../services/storageService';
 
 interface DittoProps {
   userId: string;
@@ -12,7 +12,6 @@ interface DittoProps {
   role?: UserRole;
 }
 
-// Simulate past history
 const baseHistory: GradeRecord[] = [
   { term: '입학', score: 40, subject: '종합' },
   { term: '1학기', score: 55, subject: '종합' },
@@ -29,45 +28,43 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
   // Teacher View State
   const [studentGrowthStats, setStudentGrowthStats] = useState<{ id: string; courseCount: number; reflection: string }[]>([]);
 
-  // Load Data based on Role
   useEffect(() => {
-    setIsLoading(true);
+    const loadData = async () => {
+      setIsLoading(true);
 
-    if (role === UserRole.TEACHER) {
-      // Load Aggregated Data for Teacher
-      const stats = getAllStudentGrowthData();
-      setStudentGrowthStats(stats);
+      if (role === UserRole.TEACHER) {
+        const stats = await getAllStudentGrowthData();
+        setStudentGrowthStats(stats);
+      } else {
+        // Student Data Loading
+        const savedReflectionData = await fetchReflection(userId);
+        setReflection(savedReflectionData.reflection || '');
+        setFeedback(savedReflectionData.feedback || null);
+
+        const completedCourseIds = await fetchUserProgress(userId);
+        const challenges = await fetchChallenges(userId);
+
+        const courseScore = completedCourseIds.length * 5;
+        const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
+        
+        const currentScore = 62 + courseScore + challengeScore;
+        const cappedScore = Math.min(currentScore, 100);
+
+        const currentDataPoint = {
+          term: '현재',
+          score: cappedScore,
+          subject: '종합'
+        };
+
+        setGraphData([...baseHistory, currentDataPoint]);
+      }
       setIsLoading(false);
-    } else {
-      // Load Personal Data for Student
-      const savedReflectionData = loadUserData(userId, 'ditto_reflection', { reflection: '', feedback: null });
-      setReflection(savedReflectionData.reflection || '');
-      setFeedback(savedReflectionData.feedback || null);
-
-      const completedCourseIds = loadUserData<string[]>(userId, 'course_progress', []);
-      const challenges: Challenge[] = loadUserData(userId, 'god_saeng', []);
-
-      // Calculate Score
-      const courseScore = completedCourseIds.length * 5;
-      const challengeScore = challenges.reduce((acc, c) => acc + c.daysCompleted, 0) * 1;
-      
-      const currentScore = 62 + courseScore + challengeScore;
-      const cappedScore = Math.min(currentScore, 100);
-
-      const currentDataPoint = {
-        term: '현재',
-        score: cappedScore,
-        subject: '종합'
-      };
-
-      setGraphData([...baseHistory, currentDataPoint]);
-      setIsLoading(false);
-    }
+    };
+    loadData();
   }, [userId, role]);
 
-  // Save helper
-  const handleSave = () => {
-    saveUserData(userId, 'ditto_reflection', { reflection, feedback });
+  const handleSave = async () => {
+    await saveReflectionToSupabase(userId, reflection, feedback);
     alert("저장되었습니다!");
   };
 
@@ -86,7 +83,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     setFeedback(aiResponse);
     setIsGenerating(false);
     
-    saveUserData(userId, 'ditto_reflection', { reflection, feedback: aiResponse });
+    await saveReflectionToSupabase(userId, reflection, aiResponse);
   };
 
   const handleCopyToSheets = () => {
@@ -96,15 +93,15 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     
     navigator.clipboard.writeText(text).then(() => {
       window.open('https://sheet.new', '_blank');
-      alert("성장 그래프 데이터가 복사되었습니다! 새로 열린 시트에 Ctrl+V 하세요.");
-    }).catch(() => {
-      alert("복사에 실패했습니다.");
+      alert("복사되었습니다! 새 시트에 붙여넣기(Ctrl+V)하세요.");
     });
   };
 
-  // ------------------------------------------------------------------
-  // TEACHER VIEW
-  // ------------------------------------------------------------------
+  if (isLoading) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600 w-8 h-8" /></div>;
+  }
+
+  // Teacher View
   if (role === UserRole.TEACHER) {
     const reflectionList = studentGrowthStats.filter(s => s.reflection && s.reflection.trim() !== '');
 
@@ -182,9 +179,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     );
   }
 
-  // ------------------------------------------------------------------
-  // STUDENT VIEW (Original)
-  // ------------------------------------------------------------------
+  // Student View
   const currentScore = graphData[graphData.length - 1]?.score || 0;
   const growth = currentScore - graphData[0].score;
 
@@ -197,7 +192,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
             <button 
               onClick={handleCopyToSheets}
               className="flex items-center gap-1 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-slate-900 transition-colors"
-              title="구글 스프레드시트에 붙여넣기 좋게 복사합니다"
             >
               <Copy className="w-4 h-4" /> 구글 시트 복사
             </button>
@@ -244,9 +238,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
             </LineChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-xs text-slate-400 text-center mt-4 bg-slate-50 py-2 rounded-lg">
-          💡 숏클래스 수강과 갓생챌린지 인증을 통해 성장 점수를 올릴 수 있습니다.
-        </p>
       </div>
 
       {/* Before & After Storytelling */}
@@ -264,7 +255,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
           <div className="relative">
             <textarea
               className="w-full p-4 rounded-2xl bg-white border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all resize-none outline-none text-slate-700 h-40"
-              placeholder="처음 시작했을 때와 지금, 무엇이 달라졌나요? 솔직한 감정을 기록해보세요. (예: 처음엔 수학 문제만 보면 졸렸는데, 이제는 풀리는 재미를 알게 되었다.)"
+              placeholder="처음 시작했을 때와 지금, 무엇이 달라졌나요?"
               value={reflection}
               onChange={(e) => setReflection(e.target.value)}
             />
@@ -277,7 +268,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
             </button>
           </div>
 
-          {/* AI Feedback Card */}
           {feedback && (
             <div className="animate-fade-in mt-6">
               <div className="relative bg-indigo-600 text-white p-6 rounded-2xl rounded-tl-none shadow-xl">
@@ -294,11 +284,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
                     </p>
                   </div>
                 </div>
-              </div>
-              <div className="mt-4 text-center">
-                <button className="text-slate-400 text-xs underline hover:text-indigo-500 transition-colors">
-                  이 스토리 인스타그램에 공유하기
-                </button>
               </div>
             </div>
           )}

@@ -1,22 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge, UserRole } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2 } from 'lucide-react';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2 } from 'lucide-react';
 import { generateChallengeSummary, recommendChallenge } from '../services/geminiService';
-import { loadUserData, saveUserData, getAllStudentChallengeStats } from '../services/storageService';
+import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 
 interface GodSaengProps {
   userId: string;
   role?: UserRole;
 }
-
-// Initial samples for structure, but we will filter them out for the user view
-const initialChallenges: Challenge[] = [
-  { id: '1', title: '미라클 모닝 6AM', description: '아침 6시 기상 인증샷 찍기', daysTotal: 30, daysCompleted: 12, badgeIcon: '🌅', color: 'bg-orange-500' },
-  { id: '2', title: '야자 2시간 순공', description: '타임랩스 촬영하여 인증', daysTotal: 14, daysCompleted: 14, badgeIcon: '🔥', color: 'bg-red-500' },
-  { id: '3', title: '영단어 50개 암기', description: '퀴즈 점수 90점 이상 인증', daysTotal: 30, daysCompleted: 5, badgeIcon: '🧠', color: 'bg-blue-500' },
-];
 
 const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -37,29 +30,22 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   useEffect(() => {
-    setIsLoading(true);
-    
-    if (role === UserRole.TEACHER) {
-      // Teacher Logic: Load aggregated stats
-      const stats = getAllStudentChallengeStats();
-      setStudentStats(stats);
+    const loadData = async () => {
+      setIsLoading(true);
+      
+      if (role === UserRole.TEACHER) {
+        // Teacher Logic: Load aggregated stats from DB
+        const stats = await getAllStudentChallengeStats();
+        setStudentStats(stats);
+      } else {
+        // Student Logic: Load personal data from DB
+        const loadedData = await fetchChallenges(userId);
+        setChallenges(loadedData);
+      }
       setIsLoading(false);
-    } else {
-      // Student Logic: Load personal data
-      const loadedData = loadUserData(userId, 'god_saeng', initialChallenges);
-      // Filter out sample data (IDs 1-3) so user starts fresh
-      const cleanData = loadedData.filter(c => c.id.length > 5);
-      setChallenges(cleanData);
-      setIsLoading(false);
-    }
+    };
+    loadData();
   }, [userId, role]);
-
-  useEffect(() => {
-    // Save logic only for students
-    if (role !== UserRole.TEACHER && !isLoading) {
-      saveUserData(userId, 'god_saeng', challenges);
-    }
-  }, [challenges, userId, isLoading, role]);
 
   useEffect(() => {
     if (role !== UserRole.TEACHER && challenges.length > 0) {
@@ -77,30 +63,36 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     }
   };
 
-  const handleCertify = () => {
+  const handleCertify = async () => {
     if (!selectedChallenge || !proofImage) return;
     
-    setChallenges(prev => prev.map(c => 
-      c.id === selectedChallenge.id 
-        ? { ...c, daysCompleted: Math.min(c.daysCompleted + 1, c.daysTotal) } 
-        : c
-    ));
+    // Optimistic UI update
+    const updatedChallenge = { 
+      ...selectedChallenge, 
+      daysCompleted: Math.min(selectedChallenge.daysCompleted + 1, selectedChallenge.daysTotal) 
+    };
+
+    setChallenges(prev => prev.map(c => c.id === selectedChallenge.id ? updatedChallenge : c));
+    
+    // DB Update
+    await saveChallengeToSupabase(userId, updatedChallenge);
     
     alert(`🎉 ${selectedChallenge.title} 인증 완료! 경험치가 상승했습니다.`);
     setSelectedChallenge(null);
     setProofImage(null);
   };
 
-  const handleDeleteChallenge = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); // Stop click from bubbling to card
+  const handleDeleteChallenge = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
     e.preventDefault();
     
     if (window.confirm('정말 이 챌린지를 삭제하시겠습니까?')) {
+      await deleteChallengeFromSupabase(id);
       setChallenges(prev => prev.filter(c => c.id !== id));
     }
   };
 
-  const handleAddChallenge = () => {
+  const handleAddChallenge = async () => {
     if (!newTitle.trim()) return;
     
     const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-teal-500'];
@@ -116,7 +108,10 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       color: colors[Math.floor(Math.random() * colors.length)]
     };
 
-    setChallenges([...challenges, newChallenge]);
+    // DB Save
+    await saveChallengeToSupabase(userId, newChallenge);
+    
+    setChallenges(prev => [...prev, newChallenge]);
     setShowAddModal(false);
     resetForm();
   };
@@ -142,9 +137,11 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     setIsAiLoading(false);
   };
 
-  // ------------------------------------------------------------------
-  // TEACHER VIEW
-  // ------------------------------------------------------------------
+  if (isLoading) {
+    return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-indigo-600 w-8 h-8" /></div>;
+  }
+
+  // Teacher View
   if (role === UserRole.TEACHER) {
     return (
       <div className="space-y-8 pb-20">
@@ -188,27 +185,13 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-6 grid grid-cols-2 gap-4">
-               <div className="bg-indigo-50 p-4 rounded-xl">
-                 <span className="text-xs font-bold text-indigo-400 block mb-1">가장 열정적인 학생</span>
-                 <div className="text-lg font-black text-indigo-900 truncate">{studentStats[0]?.name || '-'}</div>
-               </div>
-               <div className="bg-slate-50 p-4 rounded-xl">
-                 <span className="text-xs font-bold text-slate-400 block mb-1">참여 학생 수</span>
-                 <div className="text-lg font-black text-slate-700">{studentStats.length}명</div>
-               </div>
-            </div>
           </div>
         )}
       </div>
     );
   }
 
-  // ------------------------------------------------------------------
-  // STUDENT VIEW (Existing Logic)
-  // ------------------------------------------------------------------
-  
-  // Calculate stats based on real data
+  // Student View
   const totalBadges = challenges.filter(c => c.daysCompleted === c.daysTotal).length;
   const currentStreak = challenges.length > 0 ? Math.max(...challenges.map(c => c.daysCompleted > 0 ? c.daysCompleted : 0)) : 0;
   const level = Math.floor(challenges.reduce((acc, cur) => acc + cur.daysCompleted, 0) / 5) + 1;
@@ -260,7 +243,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
           <div key={challenge.id} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 relative overflow-hidden transition-all hover:shadow-md group">
             <div className={`absolute top-0 left-0 w-1 h-full ${challenge.color}`}></div>
             
-            {/* Delete Button - Improved Click Area & Z-Index */}
             <button 
               type="button"
               onClick={(e) => handleDeleteChallenge(e, challenge.id)}
@@ -284,7 +266,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
             
             <div className="flex justify-between items-center">
                <div className="flex-1 pr-4">
-                 {/* Progress Bar */}
                 <div className="relative">
                   <div className="flex justify-between text-xs font-semibold text-slate-400 mb-1">
                     <span>진행률</span>
@@ -316,17 +297,9 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
             </div>
           </div>
         ))}
-        
-        {challenges.length === 0 && (
-            <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-2xl border-dashed border-2 border-slate-200">
-                <Award className="w-12 h-12 mx-auto text-slate-300 mb-2" />
-                <p className="font-bold">등록된 챌린지가 없습니다.</p>
-                <p className="text-xs mt-1">'추가' 버튼을 눌러 갓생을 시작해보세요!</p>
-            </div>
-        )}
       </div>
 
-      {/* Certification Modal */}
+      {/* Modal Logic Remains Same */}
       {selectedChallenge && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-6 animate-fade-in-up shadow-2xl">
@@ -371,7 +344,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
         </div>
       )}
 
-      {/* Add Challenge Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -380,7 +352,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                <button onClick={() => setShowAddModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
             </div>
             
-            {/* AI Recommendation Button */}
             <button 
               onClick={handleAiRecommend}
               disabled={isAiLoading}
@@ -408,7 +379,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                   placeholder="예: 하루 물 2L 마시기"
                 />
               </div>
-              
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">설명</label>
                 <input 
@@ -418,7 +388,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                   placeholder="인증 방법 간단 설명"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">목표 기간 ({newDays}일)</label>
                 <input 
@@ -429,12 +398,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                   onChange={(e) => setNewDays(parseInt(e.target.value))}
                   className="w-full accent-indigo-600"
                 />
-                <div className="flex justify-between text-xs text-slate-400 mt-1">
-                  <span>3일</span>
-                  <span>100일</span>
-                </div>
               </div>
-
               <button 
                 onClick={handleAddChallenge}
                 disabled={!newTitle.trim()}
