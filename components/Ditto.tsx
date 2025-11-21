@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Challenge, UserRole } from '../types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, BookOpen, User as UserIcon, Loader2, Bot, Settings, FileSpreadsheet, X, HelpCircle } from 'lucide-react';
-import { generateFeedback, summarizeStudentReflection } from '../services/geminiService';
+import { TrendingUp, Sparkles, Edit3, Save, BookOpen, User as UserIcon, Loader2, Bot, Settings, FileSpreadsheet, X, HelpCircle } from 'lucide-react';
+import { summarizeStudentReflection } from '../services/geminiService';
 import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, getAllStudentGrowthData } from '../services/storageService';
 
 interface DittoProps {
@@ -82,8 +82,6 @@ const ReflectionCard: React.FC<{ student: { id: string; reflection: string } }> 
 const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
   const [graphData, setGraphData] = useState<GradeRecord[]>(baseHistory);
   const [reflection, setReflection] = useState('');
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Teacher View State
@@ -107,7 +105,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
         // Student Data Loading
         const savedReflectionData = await fetchReflection(userId);
         setReflection(savedReflectionData.reflection || '');
-        setFeedback(savedReflectionData.feedback || null);
 
         const completedCourseIds = await fetchUserProgress(userId);
         const challenges = await fetchChallenges(userId);
@@ -132,26 +129,9 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
   }, [userId, role]);
 
   const handleSave = async () => {
-    await saveReflectionToSupabase(userId, reflection, feedback);
+    // Feedback is passed as null since the feature is removed
+    await saveReflectionToSupabase(userId, reflection, null);
     alert("저장되었습니다!");
-  };
-
-  const handleGenerateFeedback = async () => {
-    if (!reflection.trim()) {
-      alert("변화에 대한 이야기를 먼저 적어주세요!");
-      return;
-    }
-    setIsGenerating(true);
-    
-    const startScore = graphData[0].score;
-    const currentScore = graphData[graphData.length - 1].score;
-    const gradeChangeSummary = `입학 당시 ${startScore}점에서 현재 ${currentScore}점으로 성장`;
-    
-    const aiResponse = await generateFeedback(reflection, gradeChangeSummary);
-    setFeedback(aiResponse);
-    setIsGenerating(false);
-    
-    await saveReflectionToSupabase(userId, reflection, aiResponse);
   };
 
   const handleSaveSettings = () => {
@@ -411,34 +391,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
               value={reflection}
               onChange={(e) => setReflection(e.target.value)}
             />
-            <button
-              onClick={handleGenerateFeedback}
-              disabled={isGenerating}
-              className="absolute bottom-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:bg-slate-400 transition-colors flex items-center gap-2 shadow-md"
-            >
-              {isGenerating ? 'AI 선생님께 전송중...' : <><Sparkles className="w-4 h-4" /> 선생님 피드백 받기</>}
-            </button>
           </div>
-
-          {feedback && (
-            <div className="animate-fade-in mt-6">
-              <div className="relative bg-indigo-600 text-white p-6 rounded-2xl rounded-tl-none shadow-xl">
-                <div className="absolute -top-3 left-0 bg-indigo-600 text-xs font-bold px-3 py-1 rounded-t-lg">
-                  AI 선생님의 편지 💌
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex-shrink-0 bg-white/20 p-2 rounded-full h-fit">
-                    <MessageCircle className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-indigo-50 leading-relaxed text-sm font-medium">
-                      {feedback}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
