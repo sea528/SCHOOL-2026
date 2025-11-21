@@ -19,7 +19,13 @@ const CSAT_QUOTES = [
   "그대만큼 사랑스러운 사람을 본 일이 없다",
   "흙에서 자란 내 마음 파아란 하늘빛",
   "어둠 속에서도 빛나는 별이 되어라",
-  "당신의 꿈은 반드시 이루어진다"
+  "당신의 꿈은 반드시 이루어진다",
+  "그대 잘 가라, 이 어둠 뚫고",
+  "눈부신 햇살이 비치는 곳으로",
+  "바람이 불면 흔들릴 수 있어도",
+  "뿌리 깊은 나무는 쓰러지지 않는다",
+  "오늘 흘린 땀방울이 내일의 보석",
+  "찬란한 슬픔의 봄을 지나서"
 ];
 
 const THEME_COLORS = [
@@ -83,19 +89,28 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       const logs = await fetchHandwritingLogs(userId);
       const now = new Date();
       
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      const weekNumber = Math.ceil((((now.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getDay() + 1) / 7);
-      const quoteIndex = weekNumber % CSAT_QUOTES.length;
+      // Calculate Day of Year for daily rotation
+      const startOfYear = new Date(now.getFullYear(), 0, 0);
+      const diff = now.getTime() - startOfYear.getTime();
+      const oneDay = 1000 * 60 * 60 * 24;
+      const dayOfYear = Math.floor(diff / oneDay);
+      
+      const quoteIndex = dayOfYear % CSAT_QUOTES.length;
       setCurrentQuote(CSAT_QUOTES[quoteIndex]);
 
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 6);
-      
-      const recentLog = logs.find(log => new Date(log.createdAt) > oneWeekAgo);
-      if (recentLog) {
+      // Check if done TODAY
+      const todayLog = logs.find(log => {
+        const logDate = new Date(log.createdAt);
+        return logDate.toDateString() === now.toDateString();
+      });
+
+      if (todayLog) {
         setIsHandwritingDone(true);
-        setHandwritingDate(recentLog.createdAt);
-        setCurrentQuote(recentLog.phrase);
+        setHandwritingDate(todayLog.createdAt);
+        setCurrentQuote(todayLog.phrase); // Keep consistent even if calculation drifts
+      } else {
+        setIsHandwritingDone(false);
+        setHandwritingInput('');
       }
     }
     setIsLoading(false);
@@ -221,7 +236,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       await saveHandwritingLog(userId, currentQuote);
       setIsHandwritingDone(true);
       setHandwritingDate(new Date().toISOString());
-      alert("필적 확인 완료! 마음가짐이 기록되었습니다.");
+      alert("필적 확인 완료! 오늘의 마음가짐이 기록되었습니다.");
     } else {
       alert("문구가 일치하지 않습니다. 띄어쓰기를 포함하여 정확히 입력해주세요.");
     }
@@ -339,9 +354,9 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       <div className="bg-white rounded-xl shadow-md border border-slate-300 overflow-hidden max-w-md mx-auto">
         <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex justify-between items-center">
            <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-             <PenTool className="w-3 h-3" /> 주간 필적 확인란
+             <PenTool className="w-3 h-3" /> 오늘의 필적 확인란
            </span>
-           <span className="text-[10px] text-slate-400 tracking-widest">2026학년도 대학수학능력시험 대비</span>
+           <span className="text-[10px] text-slate-400 tracking-widest">매일 아침 마음 다잡기</span>
         </div>
         <div className="p-6 flex flex-col items-center space-y-4 bg-[#fffbf0]">
           <p className="text-sm text-slate-500 font-medium mb-2">아래 문구를 정자로 기재하시오.</p>
@@ -359,7 +374,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                   <span className="font-bold text-xs transform scale-110">확인됨</span>
                </div>
                <p className="text-[10px] text-center text-slate-400 mt-2">
-                 {new Date(handwritingDate || '').toLocaleDateString()} 기록 완료
+                 {new Date(handwritingDate || '').toLocaleDateString()} 오늘의 다짐 완료
                </p>
             </div>
           ) : (
