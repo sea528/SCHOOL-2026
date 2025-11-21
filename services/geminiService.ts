@@ -1,12 +1,26 @@
 
 import { GoogleGenAI } from "@google/genai";
 
+// Helper to safely access env vars
+const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  try {
+    // @ts-ignore
+    return import.meta.env.API_KEY || import.meta.env.VITE_API_KEY;
+  } catch (e) {
+    return undefined;
+  }
+};
+
 const getAiClient = () => {
-  if (!process.env.API_KEY) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
     console.error("API_KEY is missing in environment variables.");
     return null;
   }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return new GoogleGenAI({ apiKey: apiKey });
 };
 
 export const generateFeedback = async (studentReflection: string, gradeChange: string): Promise<string> => {
