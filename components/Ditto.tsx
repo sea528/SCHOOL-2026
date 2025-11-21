@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { GradeRecord, Challenge, UserRole } from '../types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, FileSpreadsheet, Copy, BookOpen, User as UserIcon, Loader2, Bot } from 'lucide-react';
+import { TrendingUp, Sparkles, Edit3, MessageCircle, Save, BookOpen, User as UserIcon, Loader2, Bot, Settings, FileSpreadsheet, X, HelpCircle } from 'lucide-react';
 import { generateFeedback, summarizeStudentReflection } from '../services/geminiService';
-import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, downloadUserDataAsExcel, getAllStudentGrowthData } from '../services/storageService';
+import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, getAllStudentGrowthData } from '../services/storageService';
 
 interface DittoProps {
   userId: string;
@@ -88,6 +88,9 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
 
   // Teacher View State
   const [studentGrowthStats, setStudentGrowthStats] = useState<{ id: string; courseCount: number; reflection: string }[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -96,6 +99,10 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
       if (role === UserRole.TEACHER) {
         const stats = await getAllStudentGrowthData();
         setStudentGrowthStats(stats);
+        
+        // Load saved sheet URL
+        const savedUrl = localStorage.getItem('TEACHER_SHEET_URL');
+        if (savedUrl) setSheetUrl(savedUrl);
       } else {
         // Student Data Loading
         const savedReflectionData = await fetchReflection(userId);
@@ -147,15 +154,53 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     await saveReflectionToSupabase(userId, reflection, aiResponse);
   };
 
-  const handleCopyToSheets = () => {
-    const header = "시기\t점수\t과목";
-    const rows = graphData.map(d => `${d.term}\t${d.score}\t${d.subject}`).join('\n');
-    const text = `${header}\n${rows}`;
-    
-    navigator.clipboard.writeText(text).then(() => {
-      window.open('https://sheet.new', '_blank');
-      alert("복사되었습니다! 새 시트에 붙여넣기(Ctrl+V)하세요.");
-    });
+  const handleSaveSettings = () => {
+    localStorage.setItem('TEACHER_SHEET_URL', sheetUrl);
+    setShowSettings(false);
+    alert("구글 시트 URL이 저장되었습니다.");
+  };
+
+  const handleExportToSheet = async () => {
+    if (!sheetUrl) {
+      alert("설정 버튼을 눌러 Google Apps Script URL을 먼저 등록해주세요.");
+      return;
+    }
+
+    if (studentGrowthStats.length === 0) {
+      alert("전송할 데이터가 없습니다.");
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Prepare data payload
+      const payload = {
+        timestamp: new Date().toLocaleString(),
+        teacherName: userName,
+        students: studentGrowthStats.map(s => ({
+          name: s.id,
+          courseCount: s.courseCount,
+          reflection: s.reflection
+        }))
+      };
+
+      // Use no-cors mode to send data without reading response (standard for GAS Web App POSTs from client)
+      await fetch(sheetUrl, {
+        method: 'POST',
+        mode: 'no-cors', 
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      alert("✅ 구글 시트로 데이터가 전송되었습니다! (잠시 후 시트를 확인하세요)");
+    } catch (error) {
+      console.error("Export Error", error);
+      alert("전송 중 오류가 발생했습니다. URL을 확인해주세요.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (isLoading) {
@@ -167,14 +212,35 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     const reflectionList = studentGrowthStats.filter(s => s.reflection && s.reflection.trim() !== '');
 
     return (
-      <div className="space-y-8 pb-20">
-        <header className="text-center space-y-2">
+      <div className="space-y-8 pb-20 relative">
+        <header className="text-center space-y-2 relative">
+           {/* Settings Button */}
+           <button 
+            onClick={() => setShowSettings(true)}
+            className="absolute right-0 top-0 p-2 text-slate-400 hover:text-indigo-600 bg-white rounded-full shadow-sm border border-slate-200 transition-all"
+            title="구글 시트 연결 설정"
+           >
+             <Settings className="w-5 h-5" />
+           </button>
+
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 mb-2">
             <TrendingUp className="w-6 h-6" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">학급 성장 리포트</h1>
           <p className="text-slate-500 text-sm">학생들의 수강 현황과 성장 에세이를 확인하세요.</p>
         </header>
+        
+        {/* Action Bar */}
+        <div className="flex justify-end">
+          <button 
+            onClick={handleExportToSheet}
+            disabled={isExporting}
+            className="flex items-center gap-2 bg-[#1D6F42] text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-[#155a33] transition-colors disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            구글 시트로 전송
+          </button>
+        </div>
 
         {/* 1. Course Completion Graph */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
@@ -224,6 +290,57 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
             )}
           </div>
         </div>
+
+        {/* Settings Modal */}
+        {showSettings && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-in-up">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-slate-500" /> 구글 시트 연결 설정
+                </h3>
+                <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-xl text-xs text-slate-600 space-y-2 leading-relaxed border border-slate-100">
+                  <p className="font-bold text-indigo-600 flex items-center gap-1">
+                    <HelpCircle className="w-3 h-3" /> 설정 방법 (App Script)
+                  </p>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>구글 스프레드시트를 새로 만듭니다.</li>
+                    <li><strong>확장 프로그램 {'>'} Apps Script</strong>를 엽니다.</li>
+                    <li>기존 코드를 지우고 <strong>아래 코드를 복사/붙여넣기</strong> 합니다.</li>
+                    <li><strong>배포 {'>'} 새 배포</strong>를 클릭합니다.</li>
+                    <li>유형: <strong>웹 앱</strong> 선택</li>
+                    <li>액세스 권한: <strong>'모든 사용자' (필수)</strong></li>
+                    <li>생성된 <strong>웹 앱 URL</strong>을 아래에 붙여넣으세요.</li>
+                  </ol>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">웹 앱 URL (Web App URL)</label>
+                  <input 
+                    type="text"
+                    value={sheetUrl}
+                    onChange={(e) => setSheetUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/..."
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+                  />
+                </div>
+
+                <button 
+                  onClick={handleSaveSettings}
+                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+                >
+                  설정 저장
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -237,20 +354,6 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
       <header className="space-y-2">
         <div className="flex justify-between items-start">
           <h1 className="text-3xl font-black text-slate-900">Ditto 성장 <span className="text-indigo-600 text-lg align-middle font-medium">#나도_그래</span></h1>
-          <div className="flex gap-2">
-            <button 
-              onClick={handleCopyToSheets}
-              className="flex items-center gap-1 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg hover:bg-slate-900 transition-colors"
-            >
-              <Copy className="w-4 h-4" /> 구글 시트 복사
-            </button>
-            <button 
-              onClick={() => downloadUserDataAsExcel(userId, userName, graphData)}
-              className="flex items-center gap-1 bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-green-200 hover:bg-green-700 transition-colors"
-            >
-              <FileSpreadsheet className="w-4 h-4" /> 엑셀 저장
-            </button>
-          </div>
         </div>
         <p className="text-slate-500">나의 변화 과정을 기록하고 친구들과 공유해보세요.</p>
       </header>
