@@ -2,11 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { Challenge, UserRole } from '../types';
 import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles } from 'lucide-react';
-import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog } from '../services/storageService';
+import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog, getGoogleSheetUrl } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
 interface GodSaengProps {
   userId: string;
+  userName: string;
   role?: UserRole;
 }
 
@@ -33,7 +34,7 @@ const THEME_COLORS = [
   'bg-blue-500', 'bg-orange-500', 'bg-rose-500', 'bg-emerald-500', 'bg-cyan-500'
 ];
 
-const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
+const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
@@ -181,6 +182,29 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     
     // DB Update
     await saveChallengeToSupabase(userId, updatedChallenge);
+
+    // Send to Google Sheet (if configured by teacher)
+    const sheetUrl = await getGoogleSheetUrl();
+    if (sheetUrl) {
+      try {
+        await fetch(sheetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'CHALLENGE',
+            timestamp: new Date().toLocaleString(),
+            studentId: userId,
+            studentName: userName,
+            challengeTitle: selectedChallenge.title,
+            reflection: proofReflection
+          })
+        });
+        console.log("Sent to sheet");
+      } catch (e) {
+        console.error("Failed to send to sheet", e);
+      }
+    }
     
     alert(`🎉 ${selectedChallenge.title} 인증 완료! 훌륭해요.`);
     

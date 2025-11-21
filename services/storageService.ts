@@ -347,6 +347,35 @@ export const saveReflectionToSupabase = async (userId: string, reflection: strin
   }
 };
 
+// --- App Config (Google Sheet URL) ---
+
+export const getGoogleSheetUrl = async (): Promise<string | null> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('app_config')
+      .select('value')
+      .eq('key', 'GOOGLE_SHEET_URL')
+      .single();
+    
+    if (error || !data) return null;
+    return data.value;
+  } else {
+    return localStorage.getItem('TEACHER_SHEET_URL');
+  }
+};
+
+export const saveGoogleSheetUrl = async (url: string) => {
+  if (isSupabaseConfigured) {
+    // Upsert the sheet url
+    const { error } = await supabase
+      .from('app_config')
+      .upsert([{ key: 'GOOGLE_SHEET_URL', value: url }]);
+    if (error) console.error("Error saving config", error);
+  }
+  // Always save local as well for caching/fallback
+  localStorage.setItem('TEACHER_SHEET_URL', url);
+};
+
 // --- Teacher Dashboard Aggregations ---
 
 export const getAllStudentChallengeStats = async () => {
@@ -389,6 +418,7 @@ export const getAllStudentChallengeStats = async () => {
 
 export const getAllStudentGrowthData = async () => {
   if (isSupabaseConfigured) {
+    // Removed filter on user role to include inactive students if needed, or just keep fetching all
     const { data: users } = await supabase.from('users').select('id, name').eq('role', 'STUDENT');
     const { data: progress } = await supabase.from('course_progress').select('user_id');
     const { data: reflections } = await supabase.from('reflections').select('user_id, reflection');

@@ -4,7 +4,7 @@ import { GradeRecord, Challenge, UserRole } from '../types';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp, Sparkles, Edit3, Save, BookOpen, User as UserIcon, Loader2, Bot, Settings, FileSpreadsheet, X, HelpCircle } from 'lucide-react';
 import { summarizeStudentReflection } from '../services/geminiService';
-import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, getAllStudentGrowthData } from '../services/storageService';
+import { fetchUserProgress, fetchChallenges, fetchReflection, saveReflectionToSupabase, getAllStudentGrowthData, getGoogleSheetUrl, saveGoogleSheetUrl } from '../services/storageService';
 
 interface DittoProps {
   userId: string;
@@ -98,8 +98,8 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
         const stats = await getAllStudentGrowthData();
         setStudentGrowthStats(stats);
         
-        // Load saved sheet URL
-        const savedUrl = localStorage.getItem('TEACHER_SHEET_URL');
+        // Load saved sheet URL from DB or Local
+        const savedUrl = await getGoogleSheetUrl();
         if (savedUrl) setSheetUrl(savedUrl);
       } else {
         // Student Data Loading
@@ -134,14 +134,17 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
     alert("저장되었습니다!");
   };
 
-  const handleSaveSettings = () => {
-    localStorage.setItem('TEACHER_SHEET_URL', sheetUrl);
+  const handleSaveSettings = async () => {
+    await saveGoogleSheetUrl(sheetUrl);
     setShowSettings(false);
-    alert("구글 시트 URL이 저장되었습니다.");
+    alert("구글 시트 URL이 저장되었습니다. 이제 학생들의 데이터가 이 시트로 연결됩니다.");
   };
 
   const handleExportToSheet = async () => {
-    if (!sheetUrl) {
+    // Ensure we use the latest saved URL
+    const currentSheetUrl = await getGoogleSheetUrl();
+
+    if (!currentSheetUrl) {
       alert("설정 버튼을 눌러 Google Apps Script URL을 먼저 등록해주세요.");
       return;
     }
@@ -165,7 +168,7 @@ const Ditto: React.FC<DittoProps> = ({ userId, userName, role }) => {
       };
 
       // Use no-cors mode to send data without reading response (standard for GAS Web App POSTs from client)
-      await fetch(sheetUrl, {
+      await fetch(currentSheetUrl, {
         method: 'POST',
         mode: 'no-cors', 
         headers: {
