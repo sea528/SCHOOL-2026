@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge, UserRole } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, Bot, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles } from 'lucide-react';
-import { generateChallengeSummary, recommendChallenge, suggestChallengeTheme } from '../services/geminiService';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles } from 'lucide-react';
 import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
@@ -32,7 +31,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
-  const [aiSlogan, setAiSlogan] = useState<string>("당신의 갓생을 응원합니다!");
+  const [slogan, setSlogan] = useState<string>("당신의 갓생을 응원합니다!");
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   
@@ -51,8 +50,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [newDays, setNewDays] = useState(30);
   const [newIcon, setNewIcon] = useState('');
   const [newColor, setNewColor] = useState('bg-indigo-500');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [isThemeLoading, setIsThemeLoading] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -97,12 +94,18 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   }, [userId, role]);
 
   useEffect(() => {
-    if (role !== UserRole.TEACHER && challenges.length > 0) {
-      generateChallengeSummary(challenges.map(c => c.title)).then(setAiSlogan);
-    } else if (role !== UserRole.TEACHER) {
-      setAiSlogan("새로운 챌린지를 시작해보세요!");
+    if (role !== UserRole.TEACHER) {
+      // Static motivational slogans instead of AI
+      const slogans = [
+        "작은 습관이 미래를 바꿉니다 ✨",
+        "오늘도 1% 더 성장하는 나 🔥",
+        "꾸준함이 재능을 이깁니다 🚀",
+        "갓생 살기 딱 좋은 날씨네요 ☀️",
+        "나를 믿고 끝까지 가봅시다 💪"
+      ];
+      setSlogan(slogans[Math.floor(Math.random() * slogans.length)]);
     }
-  }, [challenges, role]);
+  }, [role]);
 
   const handleRefreshStats = () => {
     loadData();
@@ -175,35 +178,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     setNewDays(30);
     setNewIcon('');
     setNewColor('bg-indigo-500');
-  };
-
-  const handleAiRecommend = async () => {
-    setIsAiLoading(true);
-    const rec = await recommendChallenge();
-    if (rec) {
-      setNewTitle(rec.title);
-      setNewDesc(rec.description);
-      setNewDays(rec.days);
-      setNewIcon(rec.emoji);
-      if (rec.color) setNewColor(rec.color);
-    } else {
-      alert("AI 추천을 불러오지 못했습니다. 다시 시도해주세요.");
-    }
-    setIsAiLoading(false);
-  };
-
-  const handleAiThemeSuggest = async () => {
-    if (!newTitle.trim()) {
-      alert("챌린지 이름을 먼저 입력해주세요!");
-      return;
-    }
-    setIsThemeLoading(true);
-    const theme = await suggestChallengeTheme(newTitle);
-    if (theme) {
-      setNewIcon(theme.emoji);
-      setNewColor(theme.color);
-    }
-    setIsThemeLoading(false);
   };
 
   const handleHandwritingSubmit = async () => {
@@ -308,7 +282,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
           GOD-SAENG PROJECT
         </div>
         <h1 className="text-3xl font-black text-slate-900 italic">#오늘도_갓생산다</h1>
-        <p className="text-slate-500 text-sm">{aiSlogan}</p>
+        <p className="text-slate-500 text-sm">{slogan}</p>
       </header>
 
       {/* Stats Row */}
@@ -505,23 +479,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                <button onClick={() => setShowAddModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
             </div>
             
-            <button 
-              onClick={handleAiRecommend}
-              disabled={isAiLoading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold shadow-md mb-6 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-            >
-              {isAiLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  AI가 고민중...
-                </>
-              ) : (
-                <>
-                  <Bot className="w-5 h-5" /> AI에게 챌린지 추천받기
-                </>
-              )}
-            </button>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">챌린지 이름</label>
@@ -532,15 +489,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                     className="flex-1 p-4 bg-slate-50 rounded-xl border-transparent focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all" 
                     placeholder="예: 하루 물 2L 마시기"
                   />
-                  <button 
-                    onClick={handleAiThemeSuggest}
-                    disabled={isThemeLoading || !newTitle}
-                    className="px-3 bg-slate-100 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex flex-col items-center justify-center gap-1"
-                    title="AI 테마 자동완성"
-                  >
-                    {isThemeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    <span className="text-[10px] font-bold">테마추천</span>
-                  </button>
                 </div>
               </div>
               
