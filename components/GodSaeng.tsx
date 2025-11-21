@@ -31,6 +31,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
+  const [proofReflection, setProofReflection] = useState<string>(''); // Added state for reflection text
   const [slogan, setSlogan] = useState<string>("당신의 갓생을 응원합니다!");
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -51,39 +52,50 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
   const [newIcon, setNewIcon] = useState('');
   const [newColor, setNewColor] = useState('bg-indigo-500');
 
+  // Pre-defined Challenge Examples
+  const [exampleChallenges, setExampleChallenges] = useState<{title: string, desc: string, icon: string, color: string}[]>([]);
+
+  const CHALLENGE_POOL = [
+    { title: "아침 6시 기상", desc: "기상 직후 시계 사진 찍기", icon: "⏰", color: "bg-orange-500" },
+    { title: "하루 물 2L 마시기", desc: "텀블러나 물컵 사진", icon: "💧", color: "bg-blue-500" },
+    { title: "매일 영단어 30개", desc: "단어장 학습 인증샷", icon: "📖", color: "bg-indigo-500" },
+    { title: "플래너 작성하기", desc: "오늘의 계획표 찍기", icon: "📝", color: "bg-purple-500" },
+    { title: "하루 10분 스트레칭", desc: "매트나 운동 모습", icon: "🧘", color: "bg-teal-500" },
+    { title: "감사일기 3줄 쓰기", desc: "일기장 살짝 가리고 인증", icon: "🍀", color: "bg-emerald-500" },
+    { title: "수학 문제 5개 풀기", desc: "풀이 과정 찍기", icon: "📐", color: "bg-rose-500" },
+    { title: "뉴스 기사 1개 읽기", desc: "기사 제목 캡쳐", icon: "📰", color: "bg-slate-600" },
+    { title: "잠들기 전 폰 안보기", desc: "폰 내려놓은 사진 (타임스탬프)", icon: "📵", color: "bg-pink-500" },
+    { title: "하늘 사진 찍기", desc: "예쁜 하늘 보며 힐링", icon: "☁️", color: "bg-cyan-500" },
+    { title: "부모님께 사랑한다 말하기", desc: "카톡 캡쳐나 대화 내용", icon: "👨‍👩‍👧", color: "bg-red-500" },
+    { title: "비타민 챙겨 먹기", desc: "약 먹기 전 인증", icon: "💊", color: "bg-yellow-500" }
+  ];
+
   const loadData = async () => {
     setIsLoading(true);
     
     if (role === UserRole.TEACHER) {
-      // Teacher Logic: Load aggregated stats from DB
       const stats = await getAllStudentChallengeStats();
       setStudentStats(stats);
     } else {
-      // Student Logic: Load personal data from DB
       const loadedData = await fetchChallenges(userId);
       setChallenges(loadedData);
 
-      // Handwriting Logic
       const logs = await fetchHandwritingLogs(userId);
       const now = new Date();
       
-      // Determine this week's quote (simple rotation based on week number to keep it consistent for everyone)
       const startOfYear = new Date(now.getFullYear(), 0, 1);
       const weekNumber = Math.ceil((((now.getTime() - startOfYear.getTime()) / 86400000) + startOfYear.getDay() + 1) / 7);
       const quoteIndex = weekNumber % CSAT_QUOTES.length;
       setCurrentQuote(CSAT_QUOTES[quoteIndex]);
 
-      // Check if done this week (last 7 days is a simple check, or check same week number)
-      // Ideally, check if the last log was created in the current week.
-      // Simplified: check if there is a log within the last 6 days.
       const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 6); // Allow once every weekish
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 6);
       
       const recentLog = logs.find(log => new Date(log.createdAt) > oneWeekAgo);
       if (recentLog) {
         setIsHandwritingDone(true);
         setHandwritingDate(recentLog.createdAt);
-        setCurrentQuote(recentLog.phrase); // Show the one they did
+        setCurrentQuote(recentLog.phrase);
       }
     }
     setIsLoading(false);
@@ -95,7 +107,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
 
   useEffect(() => {
     if (role !== UserRole.TEACHER) {
-      // Static motivational slogans instead of AI
       const slogans = [
         "작은 습관이 미래를 바꿉니다 ✨",
         "오늘도 1% 더 성장하는 나 🔥",
@@ -111,6 +122,23 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     loadData();
   };
 
+  const handleRefreshExamples = () => {
+    const shuffled = [...CHALLENGE_POOL].sort(() => 0.5 - Math.random());
+    setExampleChallenges(shuffled.slice(0, 3));
+  };
+
+  const handleOpenAddModal = () => {
+    handleRefreshExamples();
+    setShowAddModal(true);
+  };
+
+  const handleSelectExample = (ex: {title: string, desc: string, icon: string, color: string}) => {
+    setNewTitle(ex.title);
+    setNewDesc(ex.desc);
+    setNewIcon(ex.icon);
+    setNewColor(ex.color);
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -121,6 +149,12 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
 
   const handleCertify = async () => {
     if (!selectedChallenge || !proofImage) return;
+
+    // Validation: Check for text length
+    if (proofReflection.trim().length < 20) {
+      alert("챌린지를 수행하며 느낀 점이나 변화를 20자 이상 구체적으로 적어주세요! 📝\n(현재 글자 수가 부족합니다)");
+      return;
+    }
     
     // Optimistic UI update
     const updatedChallenge = { 
@@ -133,9 +167,12 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
     // DB Update
     await saveChallengeToSupabase(userId, updatedChallenge);
     
-    alert(`🎉 ${selectedChallenge.title} 인증 완료! 경험치가 상승했습니다.`);
+    alert(`🎉 ${selectedChallenge.title} 인증 완료! 훌륭해요.`);
+    
+    // Reset
     setSelectedChallenge(null);
     setProofImage(null);
+    setProofReflection('');
   };
 
   const handleDeleteChallenge = async (e: React.MouseEvent, id: string) => {
@@ -164,7 +201,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
       color: newColor
     };
 
-    // DB Save
     await saveChallengeToSupabase(userId, newChallenge);
     
     setChallenges(prev => [...prev, newChallenge]);
@@ -259,11 +295,6 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-4 text-center">
-              <span className="text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full">
-                📊 상위 3명의 학생은 보라색으로 표시됩니다.
-              </span>
-            </div>
           </div>
         )}
       </div>
@@ -304,7 +335,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
         </div>
       </div>
 
-      {/* Handwriting Section (OMR Style) */}
+      {/* Handwriting Section */}
       <div className="bg-white rounded-xl shadow-md border border-slate-300 overflow-hidden max-w-md mx-auto">
         <div className="bg-slate-100 px-4 py-2 border-b border-slate-300 flex justify-between items-center">
            <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
@@ -358,7 +389,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
           <Calendar className="w-5 h-5" /> 진행 중인 챌린지
         </h2>
         <button 
-          onClick={() => setShowAddModal(true)}
+          onClick={handleOpenAddModal}
           className="text-sm bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-slate-800 transition-colors"
         >
           <Plus className="w-4 h-4" /> 추가
@@ -426,35 +457,56 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
         ))}
       </div>
 
-      {/* Modal Logic Remains Same */}
+      {/* Certification Modal */}
       {selectedChallenge && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-6 animate-fade-in-up shadow-2xl">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-6 animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="text-center">
               <h3 className="text-xl font-bold text-slate-900">{selectedChallenge.title} 인증</h3>
               <p className="text-slate-500 text-sm mt-1">오늘 하루도 고생했어요! 📸</p>
             </div>
 
-            <div className="aspect-square bg-slate-50 rounded-2xl overflow-hidden border-2 border-dashed border-slate-300 flex flex-col items-center justify-center relative group hover:bg-slate-100 transition-colors">
-              {proofImage ? (
-                <img src={proofImage} alt="Proof" className="w-full h-full object-cover" />
-              ) : (
-                <>
-                  <Camera className="w-12 h-12 text-slate-300 mb-2 group-hover:text-indigo-400 transition-colors" />
-                  <span className="text-slate-400 text-sm group-hover:text-indigo-500 font-medium">사진을 탭하여 업로드</span>
-                </>
-              )}
-              <input 
-                type="file" 
-                accept="image/*"
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                onChange={handleFileUpload}
-              />
+            <div className="space-y-4">
+              {/* Photo Upload Area */}
+              <div className="aspect-square bg-slate-50 rounded-2xl overflow-hidden border-2 border-dashed border-slate-300 flex flex-col items-center justify-center relative group hover:bg-slate-100 transition-colors">
+                {proofImage ? (
+                  <img src={proofImage} alt="Proof" className="w-full h-full object-cover" />
+                ) : (
+                  <>
+                    <Camera className="w-12 h-12 text-slate-300 mb-2 group-hover:text-indigo-400 transition-colors" />
+                    <span className="text-slate-400 text-sm group-hover:text-indigo-500 font-medium">사진을 탭하여 업로드</span>
+                  </>
+                )}
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  onChange={handleFileUpload}
+                />
+              </div>
+
+              {/* Reflection Text Area */}
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1">오늘의 짧은 회고 (필수)</label>
+                <textarea
+                  value={proofReflection}
+                  onChange={(e) => setProofReflection(e.target.value)}
+                  placeholder="예: 오늘은 물을 마시니 피부가 좋아지는 기분이다. (20자 이상)"
+                  className={`w-full p-3 bg-slate-50 rounded-xl border focus:ring-2 focus:ring-indigo-200 outline-none transition-all resize-none h-24 text-sm ${
+                    proofReflection.length > 0 && proofReflection.length < 20 ? 'border-red-300 focus:border-red-500' : 'border-slate-200 focus:border-indigo-500'
+                  }`}
+                />
+                <div className="flex justify-end mt-1">
+                  <span className={`text-xs font-bold ${proofReflection.length >= 20 ? 'text-green-500' : 'text-slate-400'}`}>
+                    {proofReflection.length} / 20자
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-3">
               <button 
-                onClick={() => { setSelectedChallenge(null); setProofImage(null); }}
+                onClick={() => { setSelectedChallenge(null); setProofImage(null); setProofReflection(''); }}
                 className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 transition-colors"
               >
                 취소
@@ -471,6 +523,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
         </div>
       )}
 
+      {/* Add Challenge Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -479,7 +532,33 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, role }) => {
                <button onClick={() => setShowAddModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
             </div>
             
-            <div className="space-y-4">
+            {/* Recommended Examples Section */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-yellow-500" /> 추천 챌린지
+                </h4>
+                <button onClick={handleRefreshExamples} className="text-[10px] text-indigo-500 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-full hover:bg-indigo-100 transition-colors">
+                  <RefreshCw className="w-3 h-3" /> 새로고침
+                </button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar snap-x">
+                {exampleChallenges.map((ex, idx) => (
+                  <button 
+                    key={idx}
+                    onClick={() => handleSelectExample(ex)}
+                    className="snap-center flex-shrink-0 w-24 p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-col items-center text-center gap-1 hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-95"
+                  >
+                    <div className={`w-8 h-8 rounded-full ${ex.color} flex items-center justify-center text-lg shadow-sm text-white`}>
+                      {ex.icon}
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-700 line-clamp-1 w-full">{ex.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t border-slate-100 pt-4">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">챌린지 이름</label>
                 <div className="flex gap-2">
