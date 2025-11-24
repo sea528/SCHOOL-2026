@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Challenge, UserRole } from '../types';
-import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles } from 'lucide-react';
-import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog, getGoogleSheetUrl } from '../services/storageService';
+import { Challenge, UserRole, User } from '../types';
+import { Award, Calendar, Camera, Flame, Zap, Plus, X, Trash2, BarChart2, Loader2, RefreshCw, PenTool, Check, Palette, Sparkles, Send } from 'lucide-react';
+import { fetchChallenges, saveChallengeToSupabase, deleteChallengeFromSupabase, getAllStudentChallengeStats, fetchHandwritingLogs, saveHandwritingLog, getGoogleSheetUrl, getAllStudents, assignChallengeToStudents } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Legend } from 'recharts';
 
 interface GodSaengProps {
@@ -51,6 +51,10 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
   
   // Teacher View Data
   const [studentStats, setStudentStats] = useState<{ name: string; totalDays: number; challengeCount: number }[]>([]);
+  const [allStudents, setAllStudents] = useState<User[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [isAssigning, setIsAssigning] = useState(false);
 
   // New Challenge Form State
   const [newTitle, setNewTitle] = useState('');
@@ -83,6 +87,8 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
     if (role === UserRole.TEACHER) {
       const stats = await getAllStudentChallengeStats();
       setStudentStats(stats);
+      const students = await getAllStudents();
+      setAllStudents(students);
     } else {
       const loadedData = await fetchChallenges(userId);
       setChallenges(loadedData);
@@ -247,6 +253,50 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
     resetForm();
   };
 
+  const handleAssignChallenge = async () => {
+    if (!newTitle.trim() || selectedStudentIds.length === 0) {
+      alert("챌린지 제목과 대상 학생을 선택해주세요.");
+      return;
+    }
+
+    setIsAssigning(true);
+    const icons = ['🎯', '🚀', '💎', '🍀'];
+    const finalIcon = newIcon || icons[Math.floor(Math.random() * icons.length)];
+
+    const challengeData = {
+      title: newTitle,
+      description: newDesc || '선생님이 배정한 챌린지',
+      daysTotal: newDays,
+      badgeIcon: finalIcon,
+      color: newColor
+    };
+
+    await assignChallengeToStudents(selectedStudentIds, challengeData);
+    
+    alert(`${selectedStudentIds.length}명의 학생에게 챌린지를 배정했습니다!`);
+    setIsAssigning(false);
+    setShowAssignModal(false);
+    resetForm();
+    setSelectedStudentIds([]);
+    loadData(); // Refresh stats
+  };
+
+  const toggleStudentSelection = (id: string) => {
+    if (selectedStudentIds.includes(id)) {
+      setSelectedStudentIds(prev => prev.filter(sid => sid !== id));
+    } else {
+      setSelectedStudentIds(prev => [...prev, id]);
+    }
+  };
+
+  const selectAllStudents = () => {
+    if (selectedStudentIds.length === allStudents.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(allStudents.map(s => s.id));
+    }
+  };
+
   const resetForm = () => {
     setNewTitle('');
     setNewDesc('');
@@ -274,20 +324,28 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
   if (role === UserRole.TEACHER) {
     return (
       <div className="space-y-8 pb-20">
-        <header className="flex flex-col items-center justify-center space-y-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+        <header className="flex flex-col items-center justify-center space-y-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 relative">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-indigo-50 text-indigo-600 mb-1">
             <BarChart2 className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">갓생 챌린지 리더보드</h1>
           <p className="text-slate-500 text-sm text-center">
-            학생들의 챌린지 참여 현황을 한눈에 확인하세요.
+            학생들의 챌린지 참여 현황을 확인하고 미션을 배정하세요.
           </p>
-          <button 
-            onClick={handleRefreshStats}
-            className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-indigo-600 bg-slate-50 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-3 h-3" /> 데이터 새로고침
-          </button>
+          <div className="flex gap-2 mt-4">
+             <button 
+                onClick={handleRefreshStats}
+                className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-indigo-600 bg-slate-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" /> 데이터 새로고침
+              </button>
+              <button 
+                onClick={() => setShowAssignModal(true)}
+                className="flex items-center gap-2 text-xs font-bold text-white bg-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors shadow-md shadow-indigo-200"
+              >
+                <Send className="w-3 h-3" /> 챌린지 배정하기
+              </button>
+          </div>
         </header>
 
         {studentStats.length === 0 ? (
@@ -334,6 +392,101 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        )}
+
+        {/* Assign Challenge Modal for Teacher */}
+        {showAssignModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+             <div className="bg-white rounded-3xl p-6 w-full max-w-lg animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto flex flex-col">
+               <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+                    <Send className="w-5 h-5 text-indigo-600" /> 챌린지 강제 배정
+                  </h3>
+                  <button onClick={() => setShowAssignModal(false)} className="p-1 bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
+               </div>
+
+               <div className="space-y-4 flex-1 overflow-y-auto pr-2">
+                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                    <h4 className="text-sm font-bold text-indigo-800 mb-3">1. 챌린지 내용 입력</h4>
+                    <div className="space-y-3">
+                      <input 
+                        value={newTitle}
+                        onChange={(e) => setNewTitle(e.target.value)}
+                        className="w-full p-3 bg-white rounded-lg border border-indigo-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm" 
+                        placeholder="챌린지 제목 (예: 수학 익힘책 풀기)"
+                      />
+                      <input 
+                        value={newDesc}
+                        onChange={(e) => setNewDesc(e.target.value)}
+                        className="w-full p-3 bg-white rounded-lg border border-indigo-200 focus:ring-2 focus:ring-indigo-300 outline-none text-sm" 
+                        placeholder="설명 (선택사항)"
+                      />
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-xs font-bold text-indigo-600 mb-1 block">기간 ({newDays}일)</label>
+                          <input 
+                            type="range" 
+                            min="3" 
+                            max="100" 
+                            value={newDays} 
+                            onChange={(e) => setNewDays(parseInt(e.target.value))}
+                            className="w-full accent-indigo-600"
+                          />
+                        </div>
+                        <div className="w-24">
+                          <label className="text-xs font-bold text-indigo-600 mb-1 block">아이콘</label>
+                          <input 
+                            value={newIcon}
+                            onChange={(e) => setNewIcon(e.target.value)}
+                            placeholder="🚀"
+                            className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-center"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-sm font-bold text-slate-700">2. 배정 대상 선택 ({selectedStudentIds.length}명)</h4>
+                      <button 
+                        onClick={selectAllStudents}
+                        className="text-xs font-bold text-indigo-600 hover:underline"
+                      >
+                        {selectedStudentIds.length === allStudents.length ? '전체 해제' : '전체 선택'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                      {allStudents.map(student => (
+                        <label key={student.id} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200 cursor-pointer hover:bg-indigo-50">
+                          <input 
+                            type="checkbox"
+                            checked={selectedStudentIds.includes(student.id)}
+                            onChange={() => toggleStudentSelection(student.id)}
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                          />
+                          <span className="text-xs text-slate-700 font-medium truncate">{student.name} ({student.id})</span>
+                        </label>
+                      ))}
+                      {allStudents.length === 0 && (
+                        <p className="text-xs text-slate-400 col-span-2 text-center py-4">등록된 학생이 없습니다.</p>
+                      )}
+                    </div>
+                 </div>
+               </div>
+
+               <div className="pt-4 mt-2 border-t border-slate-100">
+                 <button 
+                  onClick={handleAssignChallenge}
+                  disabled={isAssigning || !newTitle.trim() || selectedStudentIds.length === 0}
+                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                 >
+                   {isAssigning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+                   선택한 학생들에게 배정하기
+                 </button>
+               </div>
+             </div>
           </div>
         )}
       </div>
@@ -562,7 +715,7 @@ const GodSaeng: React.FC<GodSaengProps> = ({ userId, userName, role }) => {
         </div>
       )}
 
-      {/* Add Challenge Modal */}
+      {/* Add Challenge Modal (Student) */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm animate-fade-in-up shadow-2xl max-h-[90vh] overflow-y-auto">

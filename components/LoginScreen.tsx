@@ -19,7 +19,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       setIsLoggingIn(true);
       
       // Determine role based on ID convention
-      const role = studentId === 'admin' || studentId === 'teacher' ? UserRole.TEACHER : UserRole.STUDENT;
+      // Updated to 'sgteacher' as requested
+      const role = studentId === 'admin' || studentId === 'sgteacher' ? UserRole.TEACHER : UserRole.STUDENT;
       
       // Login/Signup via Supabase
       const user = await loginUserToSupabase(studentId, name, role);
@@ -92,7 +93,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 />
               </div>
               <p className="text-[11px] text-slate-400 mt-1.5 ml-1 flex items-center gap-1">
-                * 선생님은 ID에 <span className="font-bold text-indigo-500 bg-indigo-50 px-1 rounded">*******</span>를 입력하세요.
+                * 선생님은 ID에 <span className="font-bold text-indigo-500 bg-indigo-50 px-1 rounded">*********</span>를 입력하세요.
               </p>
             </div>
           </div>

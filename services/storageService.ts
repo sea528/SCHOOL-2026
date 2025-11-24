@@ -60,6 +60,27 @@ const loginUserLocal = (id: string, name: string, role: UserRole): User => {
   return newUser;
 };
 
+export const getAllStudents = async (): Promise<User[]> => {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'STUDENT')
+      .order('name');
+      
+    if (error || !data) return [];
+    return data.map((u: any) => ({
+      id: u.id,
+      name: u.name,
+      role: UserRole.STUDENT
+    }));
+  } else {
+    const usersListKey = `${STORAGE_PREFIX}all_users`;
+    const allUsers: User[] = JSON.parse(localStorage.getItem(usersListKey) || '[]');
+    return allUsers.filter(u => u.role === UserRole.STUDENT);
+  }
+};
+
 // --- Micro Learning ---
 
 export const fetchCourses = async (): Promise<Course[]> => {
@@ -251,6 +272,36 @@ export const saveChallengeToSupabase = async (userId: string, challenge: Challen
       updated = [...challenges, challenge];
     }
     localStorage.setItem(`${STORAGE_PREFIX}challenges_${userId}`, JSON.stringify(updated));
+  }
+};
+
+export const assignChallengeToStudents = async (studentIds: string[], challengeData: Omit<Challenge, 'id' | 'daysCompleted'>) => {
+  if (isSupabaseConfigured) {
+    const inserts = studentIds.map(studentId => ({
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Generate unique ID
+      user_id: studentId,
+      title: challengeData.title,
+      description: challengeData.description,
+      days_total: challengeData.daysTotal,
+      days_completed: 0,
+      badge_icon: challengeData.badgeIcon,
+      color: challengeData.color
+    }));
+    
+    const { error } = await supabase.from('challenges').insert(inserts);
+    if (error) console.error("Batch Assign Error", error);
+  } else {
+    // Local Mode Loop
+    for (const studentId of studentIds) {
+      const newChallenge: Challenge = {
+        id: `${Date.now()}_${Math.random()}`,
+        ...challengeData,
+        daysCompleted: 0
+      };
+      const challenges = await fetchChallenges(studentId);
+      const updated = [...challenges, newChallenge];
+      localStorage.setItem(`${STORAGE_PREFIX}challenges_${studentId}`, JSON.stringify(updated));
+    }
   }
 };
 
